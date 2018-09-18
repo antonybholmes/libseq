@@ -15,9 +15,8 @@ Created on Thu Jun 14 12:24:32 2018
 """
 
 import sys
-sys.path.append('/ifs/scratch/cancer/Lab_RDF/abh2138/scripts/python/')
 import numpy as np
-import libsam
+import libbam
 import libdna
 import struct
 import os
@@ -112,7 +111,7 @@ class BinCountWriter(object):
         f.close()
     
     def write(self, chr):
-        sam = libsam.SamReader(self.__bam, samtools=self.__samtools)
+        sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
         
         # reset the counts
         self._reset()
@@ -148,7 +147,7 @@ class BinCountWriter(object):
         self._write(chr)
     
     def write_all(self):
-        sam = libsam.SamReader(self.__bam, samtools=self.__samtools)
+        sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
         
         chr = ''
         c = 0
