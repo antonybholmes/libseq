@@ -359,6 +359,22 @@ class BinCountReader(object):
         
         if loc is None:
             return []
+            
+        if bin_width != BIN_WIDTH:
+            # In order to ensure that the averages are consistent as
+            # we move around, reset the loc so that the start 
+            # corresponds with the bin. To explain why consider this
+            # The stored bin width is 100. If we choose a bin width
+            # of 1000 and slide the window around a little, we may
+            # pick a start point at 700,800 etc. Since the desired
+            # bin width is 1000, we will alter which bins are used to
+            # create the average and thus as we slide the average will
+            # jump about
+            s = loc.start // bin_width * bin_width
+            e = loc.end // bin_width * bin_width
+            
+            loc = libdna.Loc(loc.chr, s, e)
+            
         
         file = self._get_file(loc.chr)
         bin_size = self.get_bin_size(loc.chr)
@@ -369,7 +385,7 @@ class BinCountReader(object):
         #print(self.get_bin_width(loc.chr))
         #print(self.get_bin_count(loc.chr))
         
-        d = BinCountReader._get_counts(file, loc, bin_size)
+        d = BinCountReader._get_counts(file, loc, bin_size, bin_width=BIN_WIDTH)
         
         if len(d) == 0:
             return []
