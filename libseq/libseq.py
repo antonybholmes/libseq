@@ -42,9 +42,11 @@ class BinCountWriter(object):
         self.__samtools = samtools
         # cache counts
         self.__read_map = np.zeros(280000000, dtype=int)
-        
+    
+    
     def _reset(self):
         self.__read_map.fill(0)
+    
     
     def _write(self, chr):
         if "_" in chr:
@@ -110,6 +112,7 @@ class BinCountWriter(object):
                 
         f.close()
     
+    
     def write(self, chr):
         sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
         
@@ -146,6 +149,7 @@ class BinCountWriter(object):
         
         self._write(chr)
     
+    
     def write_all(self):
         sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
         
@@ -180,6 +184,8 @@ class BinCountReader(object):
         self.__dir = dir
         self.__genome = genome
         self.__file_map = {}
+        self.__bin_size_map = {}
+        
         
     def _get_file(self, chr):
         # Need to search for exact chr within file otherwise chr1 can map
@@ -194,6 +200,7 @@ class BinCountReader(object):
                 
         return self.__file_map[chr]
     
+    
     @staticmethod
     def _get_magic_num(file):
         f = open(file, 'rb')
@@ -202,6 +209,7 @@ class BinCountReader(object):
         
         # return 42
         return struct.unpack('I', s)[0] #return int.from_bytes(s, byteorder='little', signed=False)
+    
     
     def get_magic_num(self, chr):
         """
@@ -221,7 +229,8 @@ class BinCountReader(object):
         """
         
         return BinCountReader._get_magic_num(self._get_file(chr))
-    
+        
+        
     @staticmethod
     def _get_bin_size(file):
         """
@@ -244,8 +253,9 @@ class BinCountReader(object):
         f.close()
         
         # return in bytes
-        return struct.unpack('B', s)[0] #return int.from_bytes(s, byteorder='little', signed=False) // 8
-    
+        return struct.unpack('B', s)[0]
+        
+        
     def get_bin_size(self, chr):
         """
         Returns the bin size in bytes
@@ -260,8 +270,10 @@ class BinCountReader(object):
         int
             Bin size in bytes, either 1, 2, or 4.
         """
-        
-        return BinCountReader._get_bin_size(self._get_file(chr))
+        if chr not in self.__bin_size_map:
+            self.__bin_size_map[chr] = BinCountReader._get_bin_size(self._get_file(chr))
+            
+        return self.__bin_size_map[chr]
     
     @staticmethod
     def _get_bin_width(file):
@@ -271,10 +283,12 @@ class BinCountReader(object):
         f.close()
         
         # return in bytes
-        return struct.unpack('I', s)[0] #return int.from_bytes(s, byteorder='little', signed=False) // 8
+        return struct.unpack('I', s)[0]
+        
     
     def get_bin_width(self, chr):
         return BinCountReader._get_bin_width(self._get_file(chr))
+        
     
     @staticmethod
     def _get_bin_count(file):
@@ -284,10 +298,12 @@ class BinCountReader(object):
         f.close()
         
         # return in bytes
-        return struct.unpack('I', s)[0] #int.from_bytes(s, byteorder='little', signed=False)
+        return struct.unpack('I', s)[0]
+        
     
     def get_bin_count(self, chr):
         return BinCountReader._get_bin_count(self._get_file(chr))
+        
     
     @staticmethod
     def _get_counts(file, loc, bin_size, bin_width=BIN_WIDTH):
@@ -331,6 +347,7 @@ class BinCountReader(object):
             di += bin_size
                 
         return ret
+        
     
     def get_counts(self, loc, bin_width=BIN_WIDTH):
         """
@@ -352,8 +369,6 @@ class BinCountReader(object):
         list
             List of counts in each bin (ints).
         """
-        
-        
         
         loc = libdna.parse_loc(loc)
         
@@ -391,6 +406,10 @@ class BinCountReader(object):
             return []
                 
         if bin_width != BIN_WIDTH:
+            # Take averages when bins are not the same size as the
+            # reference, e.g. if bin width is 1000, we take the mean
+            # of the 10 bins that will fit in that bin
+            
             sb = loc.start // bin_width
             eb = loc.end // bin_width
             n = max(1, eb - sb)
