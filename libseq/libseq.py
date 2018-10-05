@@ -116,7 +116,7 @@ class BinCountWriter(object):
         f.close()
     
     def _write_count(self):
-        f = open(os.path.join(self.__dir, 'bc.counts.txt'), 'w')
+        f = open(os.path.join(self.__dir, 'bc.counts.{}.txt'.format(self.__genome), 'w')
         f.write(str(self.__sum_c))
         f.close()
     
