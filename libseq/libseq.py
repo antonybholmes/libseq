@@ -42,6 +42,7 @@ class BinCountWriter(object):
         self.__samtools = samtools
         # cache counts
         self.__read_map = np.zeros(280000000, dtype=int)
+        self.__sum_c = 0
     
     
     def _reset(self):
@@ -65,6 +66,8 @@ class BinCountWriter(object):
             c = int(round(np.floor(np.mean(self.__read_map[i:(i + BIN_WIDTH)]))))
             
             block_map[b] = c
+            
+            self.__sum_c += c
             
             i += BIN_WIDTH
             
@@ -112,12 +115,18 @@ class BinCountWriter(object):
                 
         f.close()
     
+    def _write_count(self):
+        f = open(os.path.join(self.__dir, 'bc.counts.txt'), 'w')
+        f.write(str(self.__sum_c))
+        f.close()
     
     def write(self, chr):
         sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
         
         # reset the counts
         self._reset()
+        
+        self.__sum_c = 0
         
         c = 0
         
@@ -155,6 +164,9 @@ class BinCountWriter(object):
         
         chr = ''
         c = 0
+        
+        self.__sum_c = 0
+        
 
         for read in sam:
             if read.chr != chr:
@@ -177,6 +189,8 @@ class BinCountWriter(object):
         # Process what is remaining
         if c > 0:
             self._write(chr)
+            
+        self._write_count()
             
 
 class BinCountReader(object):
