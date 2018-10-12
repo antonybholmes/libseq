@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name='libseq',
-    version='0.8.0',
+    version='0.9.0',
     author='Antony B Holmes',
     author_email='antony.b.holmes@gmail.com',
     description='A library for reading and writing binary HTS count files.',
