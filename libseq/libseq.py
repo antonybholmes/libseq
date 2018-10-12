@@ -326,7 +326,7 @@ class BinCountReader(object):
         
         sb = loc.start // bin_width
         eb = loc.end // bin_width
-        n = max(1, eb - sb)
+        n = max(1, eb - sb + 1)
         
         sa = sb * bin_size
         sn = n * bin_size
