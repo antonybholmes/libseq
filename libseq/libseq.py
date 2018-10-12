@@ -320,18 +320,23 @@ class BinCountReader(object):
         
     
     @staticmethod
-    def _get_counts(file, loc, bin_size, bin_width=BIN_WIDTH):
-        if bin_width not in BIN_WIDTHS:
-            return []
+    def _get_counts(file, loc, bin_size):
+        sb = loc.start // BIN_WIDTH
+        eb = loc.end // BIN_WIDTH
+        n = max(1, eb - sb)
         
-        sb = loc.start // bin_width
-        eb = loc.end // bin_width
-        n = max(1, eb - sb + 1)
+        sa = sb
+        sn = n
         
-        sa = sb * bin_size
-        sn = n * bin_size
+        if bin_size > 1:
+            sa *= bin_size
+            sn *= bin_size
         
         f = open(file, 'rb')
+        
+        
+        print(sa, sn, BINS_OFFSET_BYTES)
+        
         # start address of seek
         
         #print('sa', BINS_OFFSET_BYTES, sa)
@@ -340,6 +345,8 @@ class BinCountReader(object):
         # read block of bytes to reduce file io
         d = f.read(sn)
         f.close()
+        
+        print('sdsd', d)
         
         ret = np.zeros(n, dtype=int)
         
@@ -414,7 +421,7 @@ class BinCountReader(object):
         #print(self.get_bin_width(loc.chr))
         #print(self.get_bin_count(loc.chr))
         
-        d = BinCountReader._get_counts(file, loc, bin_size, bin_width=BIN_WIDTH)
+        d = BinCountReader._get_counts(file, loc, bin_size)
         
         if len(d) == 0:
             return []
@@ -426,9 +433,6 @@ class BinCountReader(object):
             
             sb = loc.start // bin_width
             eb = loc.end // bin_width
-            n = max(1, eb - sb + 1)
-
-            d2 = np.zeros(n, dtype=int)
             
             i = 0
                 
@@ -438,6 +442,8 @@ class BinCountReader(object):
                 # How many sets of f bins we can scan from d, If length of d
                 # is not an exact multiple of bin, n will be smaller than
                 n = d.size // f
+                
+                d2 = np.zeros(n, dtype=int)
             
                 for i2 in range(0, n):
                     d2[i2] = int(np.round(np.mean(d[i:(i + f)])))
@@ -452,6 +458,9 @@ class BinCountReader(object):
                 # large bin. In some sense, this functionality is of little
                 # practical use and is discouraged.
                 f = BIN_WIDTH // bin_width
+                n = max(1, eb - sb)
+                
+                d2 = np.zeros(n, dtype=int)
                 
                 for i2 in range(0, n):
                     d2[i2] = d[i]
@@ -462,3 +471,11 @@ class BinCountReader(object):
             d = d2
         
         return d
+
+
+if __name__ == '__main__':
+    reader = BinCountReader('/ifs/scratch/cancer/Lab_RDF/abh2138/ChIP_seq/data/samples/hg19/rdf/katia/CB4_BCL6_RK040/reads/', 'hg19')
+    
+    counts = reader.get_counts('chr3:187439165-187463515')
+    
+    print(counts)
