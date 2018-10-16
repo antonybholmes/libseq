@@ -242,7 +242,6 @@ class BinCountReader(object):
         
         for file in os.listdir(self.__dir):
             if s in file and self.__genome in file and p in file:
-                print('f', power, file)
                 self.__file_map[chr][power] = os.path.join(self.__dir, file)
                 break
                 
@@ -443,8 +442,6 @@ class BinCountReader(object):
         power = POWER[bin_width]
         
         file = self._get_file(loc.chr, power)
-        
-        print(file, power)
         
         if file is None or file == '':
             return []
