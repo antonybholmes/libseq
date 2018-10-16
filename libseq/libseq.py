@@ -28,6 +28,8 @@ BIN_WIDTH_OFFSET_BYTES = BIN_SIZE_OFFSET_BYTES + 1
 N_BINS_OFFSET_BYTES = BIN_WIDTH_OFFSET_BYTES + 4
 BINS_OFFSET_BYTES = N_BINS_OFFSET_BYTES + 4
 
+NO_DATA = np.zeros(0, dtype=int)
+
 class BinCountWriter(object):
     def __init__(self, bam, genome, bin_width, mode='max', samtools=SAMTOOLS):
         self.__bam = bam
@@ -422,7 +424,7 @@ class BinCountReader(object):
         loc = libdna.parse_loc(loc)
         
         if loc is None:
-            return []
+            return NO_DATA
             
 #        if bin_width != BIN_WIDTH:
 #            # In order to ensure that the averages are consistent as
@@ -444,7 +446,7 @@ class BinCountReader(object):
         file = self._get_file(loc.chr, power)
         
         if file is None or file == '':
-            return []
+            return NO_DATA
         
         bin_size = self.get_bin_size(loc.chr, power)
         
@@ -457,7 +459,7 @@ class BinCountReader(object):
         d = BinCountReader._get_counts(file, loc, bin_width, bin_size)
         
         if len(d) == 0:
-            return []
+            return NO_DATA
                 
         if bin_width < MIN_BIN_WIDTH:
             # Take averages when bins are not the same size as the
