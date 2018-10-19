@@ -94,7 +94,7 @@ class BinCountWriter(object):
         print('Blocks', block_map.size)
         print('Block size', bin_size_bits, maxc)
         
-        out = os.path.join(self.__dir, '{}.{}.{}bw.{}bit.bc'.format(chr, self.__genome, self.__power, bin_size_bits))
+        out = os.path.join(self.__dir, '{}.{}.{}bw.{}bit.{}.bc'.format(chr, self.__genome, self.__power, bin_size_bits, self.__mode))
         
         print('Writing to {}...'.format(out))
         
@@ -123,19 +123,19 @@ class BinCountWriter(object):
         f.close()
     
     def _write_count(self, reads):
-        f = open(os.path.join(self.__dir, 'reads.{}.bc'.format(self.__genome)), 'wb')
+        f = open(os.path.join(self.__dir, 'reads.{}.{}.bc'.format(self.__genome, self.__mode)), 'wb')
         f.write(struct.pack('>I', reads))
         f.close()
         
-        f = open(os.path.join(self.__dir, 'bc.reads.{}.txt'.format(self.__genome)), 'w')
+        f = open(os.path.join(self.__dir, 'bc.reads.{}.{}.txt'.format(self.__genome, self.__mode)), 'w')
         f.write(str(reads))
         f.close()
         
-        f = open(os.path.join(self.__dir, 'counts.{}.{}bw.bc'.format(self.__genome, self.__power)), 'wb')
+        f = open(os.path.join(self.__dir, 'counts.{}.{}bw.{}.bc'.format(self.__genome, self.__power, self.__mode)), 'wb')
         f.write(struct.pack('>I', self.__sum_c))
         f.close()
         
-        f = open(os.path.join(self.__dir, 'bc.counts.{}.{}bw.txt'.format(self.__genome, self.__power)), 'w')
+        f = open(os.path.join(self.__dir, 'bc.counts.{}.{}bw.{}.txt'.format(self.__genome, self.__power, self.__mode)), 'w')
         f.write(str(self.__sum_c))
         f.close()
     
@@ -226,9 +226,11 @@ class BinCountWriter(object):
             
 
 class BinCountReader(object):
-    def __init__(self, dir, genome):
+    def __init__(self, dir, genome, mode='max'):
         self.__dir = dir
         self.__genome = genome
+        self.__mode = mode
+        
         self.__file_map = collections.defaultdict(lambda: collections.defaultdict(str))
         self.__bin_size_map = collections.defaultdict(lambda: collections.defaultdict(int))
         
@@ -243,7 +245,7 @@ class BinCountReader(object):
         p = '{}bw'.format(power)
         
         for file in os.listdir(self.__dir):
-            if s in file and self.__genome in file and p in file:
+            if s in file and self.__genome in file and p in file and self.__mode in file:
                 self.__file_map[chr][power] = os.path.join(self.__dir, file)
                 break
                 
@@ -260,7 +262,7 @@ class BinCountReader(object):
         return struct.unpack('>I', s)[0] #return int.from_bytes(s, byteorder='little', signed=False)
     
     
-    def get_magic_num(self, chr):
+    def get_magic_num(self, chr, power):
         """
         Return the magic check number 42 for determining if the file is
         encoded correctly.
@@ -277,7 +279,7 @@ class BinCountReader(object):
             decoded correctly.
         """
         
-        return BinCountReader._get_magic_num(self._get_file(chr))
+        return BinCountReader._get_magic_num(self._get_file(chr, power))
         
         
     @staticmethod
