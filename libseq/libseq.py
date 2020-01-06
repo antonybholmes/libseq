@@ -12,6 +12,7 @@ import libbam
 import libdna
 import struct
 import os
+import s3fs
 
 #SAMTOOLS='/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-1.8/bin/samtools'
 SAMTOOLS = '/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-0.1.19/samtools'
@@ -32,22 +33,22 @@ NO_DATA = np.zeros(0, dtype=int)
 
 class BinCountWriter(object):
     def __init__(self, bam, genome, bin_width, mode='max', samtools=SAMTOOLS):
-        self.__bam = bam
-        self.__dir = os.path.dirname(os.path.abspath(bam))
-        self.__genome = genome
-        self.__samtools = samtools
-        self.__power = POWER[bin_width]
-        self.__bin_width = bin_width
-        self.__mode = mode
+        self.bam = bam
+        self.dir = os.path.dirname(os.path.abspath(bam))
+        self.genome = genome
+        self.samtools = samtools
+        self.power = POWER[bin_width]
+        self.bin_width = bin_width
+        self.mode = mode
         # cache counts
-        self.__read_map = np.zeros(280000000, dtype=int)
-        self.__bin_map = collections.defaultdict(int)
-        self.__sum_c = 0
+        self.read_map = np.zeros(280000000, dtype=int)
+        self.bin_map = collections.defaultdict(int)
+        self.sum_c = 0
     
     
     def _reset(self):
-        self.__read_map.fill(0)
-        self.__bin_map.clear()
+        self.read_map.fill(0)
+        self.bin_map.clear()
     
     
     def _write(self, chr):
@@ -55,8 +56,8 @@ class BinCountWriter(object):
             # only encode official chr
             return
         
-        max_i = np.max(np.where(self.__read_map > 0))
-        max_bin = max_i // self.__bin_width
+        max_i = np.max(np.where(self.read_map > 0))
+        max_bin = max_i // self.bin_width
         bins = max_bin + 1
         
         block_map = np.zeros(bins, dtype=int)
@@ -64,19 +65,19 @@ class BinCountWriter(object):
         i = 0
         
         for b in range(0, bins):
-            if self.__mode == 'count':
-                c = self.__bin_map[b]
-            elif self.__mode == 'max':
-                c = np.max(self.__read_map[i:(i + self.__bin_width)])
+            if self.mode == 'count':
+                c = self.bin_map[b]
+            elif self.mode == 'max':
+                c = np.max(self.read_map[i:(i + self.bin_width)])
             else:
                 # mean reads per bin
-                c = int(round(np.floor(np.mean(self.__read_map[i:(i + self.__bin_width)]))))
+                c = int(round(np.floor(np.mean(self.read_map[i:(i + self.bin_width)]))))
             
             block_map[b] = c
             
-            self.__sum_c += c
+            self.sum_c += c
             
-            i += self.__bin_width
+            i += self.bin_width
             
         bin_size_bits = 8
         maxc = 0
@@ -94,7 +95,7 @@ class BinCountWriter(object):
         print('Blocks', block_map.size)
         print('Block size', bin_size_bits, maxc)
         
-        out = os.path.join(self.__dir, '{}.{}.{}bw.{}bit.{}.bc'.format(chr, self.__genome, self.__power, bin_size_bits, self.__mode))
+        out = os.path.join(self.dir, '{}.{}.{}bw.{}bit.{}.bc'.format(chr, self.genome, self.power, bin_size_bits, self.mode))
         
         print('Writing to {}...'.format(out))
         
@@ -102,7 +103,7 @@ class BinCountWriter(object):
         f.write(struct.pack('>I', 42))
         # Write the bin size in bytes, either 1, 2, or 4
         f.write(struct.pack('>B', bin_size_bits // 8))
-        f.write(struct.pack('>I', self.__bin_width))
+        f.write(struct.pack('>I', self.bin_width))
         # so we know how many bytes are used to represent a count
         #f.write(struct.pack('B', size_in_bytes))
         #f.write(struct.pack('I', max_i))
@@ -122,30 +123,32 @@ class BinCountWriter(object):
                 
         f.close()
     
+    
     def _write_count(self, reads):
-        f = open(os.path.join(self.__dir, 'reads.{}.{}.bc'.format(self.__genome, self.__mode)), 'wb')
+        f = open(os.path.join(self.dir, 'reads.{}.{}.bc'.format(self.genome, self.mode)), 'wb')
         f.write(struct.pack('>I', reads))
         f.close()
         
-        f = open(os.path.join(self.__dir, 'bc.reads.{}.{}.txt'.format(self.__genome, self.__mode)), 'w')
-        f.write(str(reads))
-        f.close()
+        #f = open(os.path.join(self.dir, 'bc.reads.{}.{}.txt'.format(self.genome, self.mode)), 'w')
+        #f.write(str(reads))
+        #f.close()
         
-        f = open(os.path.join(self.__dir, 'counts.{}.{}bw.{}.bc'.format(self.__genome, self.__power, self.__mode)), 'wb')
-        f.write(struct.pack('>I', self.__sum_c))
-        f.close()
+        #f = open(os.path.join(self.dir, 'counts.{}.{}bw.{}.bc'.format(self.genome, self.power, self.mode)), 'wb')
+        #f.write(struct.pack('>I', self.sum_c))
+        #f.close()
         
-        f = open(os.path.join(self.__dir, 'bc.counts.{}.{}bw.{}.txt'.format(self.__genome, self.__power, self.__mode)), 'w')
-        f.write(str(self.__sum_c))
-        f.close()
+        #f = open(os.path.join(self.dir, 'bc.counts.{}.{}bw.{}.txt'.format(self.genome, self.power, self.mode)), 'w')
+        #f.write(str(self.sum_c))
+        #f.close()
+    
     
     def write(self, chr):
-        sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
+        sam = libbam.BamReader(self.bam, samtools=self.samtools)
         
         # reset the counts
         self._reset()
         
-        self.__sum_c = 0
+        self.sum_c = 0
         
         c = 0
         
@@ -165,7 +168,7 @@ class BinCountWriter(object):
             #for i in range(read.pos, read.pos + read.length):
             #    read_map[i] += 1 #.add(read.qname)
             
-            self.__read_map[read.pos:(read.pos + read.length)] += 1
+            self.read_map[read.pos:(read.pos + read.length)] += 1
             
             if c % 100000 == 0:
                 print('Processed', str(c), 'reads...')
@@ -179,12 +182,12 @@ class BinCountWriter(object):
     
     
     def write_all(self):
-        sam = libbam.SamReader(self.__bam, samtools=self.__samtools)
+        sam = libbam.BamReader(self.bam, samtools=self.samtools)
         
         chr = ''
         c = 0
         
-        self.__sum_c = 0
+        self.sum_c = 0
         
         reads = 0
 
@@ -201,14 +204,14 @@ class BinCountWriter(object):
             
             
             
-            if self.__mode == 'count':
-                sb = read.pos // self.__bin_width
-                eb = (read.pos + read.length - 1) // self.__bin_width
+            if self.mode == 'count':
+                sb = read.pos // self.bin_width
+                eb = (read.pos + read.length - 1) // self.bin_width
                 
                 for b in range(sb, eb + 1):
-                    self.__bin_map[b] += 1
+                    self.bin_map[b] += 1
             
-            self.__read_map[read.pos:(read.pos + read.length)] += 1
+            self.read_map[read.pos:(read.pos + read.length)] += 1
             
             
             if c % 100000 == 0:
@@ -227,39 +230,41 @@ class BinCountWriter(object):
 
 class BinCountReader(object):
     def __init__(self, dir, genome, mode='max'):
-        self.__dir = dir
-        self.__genome = genome
-        self.__mode = mode
+        self._dir = dir
+        self.genome = genome
+        self.mode = mode
         
-        self.__file_map = collections.defaultdict(lambda: collections.defaultdict(str))
-        self.__bin_size_map = collections.defaultdict(lambda: collections.defaultdict(int))
+        self.file_map = collections.defaultdict(lambda: collections.defaultdict(str))
+        self.bin_size_map = collections.defaultdict(lambda: collections.defaultdict(int))
+        self._reads = -1
         
         
     def _get_file(self, chr, power):
-        if power in self.__file_map[chr]:
-            return self.__file_map[chr][power]
-        
-        # Need to search for exact chr within file otherwise chr1 can map
-        # to chr10 etc.
-        s = chr + '.'
-        p = '{}bw'.format(power)
-        
-        for file in os.listdir(self.__dir):
-            if s in file and self.__genome in file and p in file and self.__mode in file:
-                self.__file_map[chr][power] = os.path.join(self.__dir, file)
-                break
+        if power not in self.file_map[chr]:
+            # Need to search for exact chr within file otherwise chr1 can map
+            # to chr10 etc.
+            s = chr + '.'
+            p = '{}bw'.format(power)
+            
+            for file in os.listdir(self._dir):
+                if s in file and self.genome in file and p in file and self.mode in file:
+                    self.file_map[chr][power] = file #os.path.join(self.dir, file)
+                    break
                 
-        return self.__file_map[chr][power]
+        return self.file_map[chr][power]
     
-    
-    @staticmethod
-    def _get_magic_num(file):
-        f = open(file, 'rb')
-        s = f.read(4)
+    def _read_data(self, file, n, seek=0):
+        f = open(os.path.join(self._dir, file), 'rb')
+        f.seek(seek)
+        data = f.read(n)
         f.close()
+        return data
+    
+    def _get_magic_num(self, file):
+        data = self.read(file, 4)
         
         # return 42
-        return struct.unpack('>I', s)[0] #return int.from_bytes(s, byteorder='little', signed=False)
+        return struct.unpack('>I', data)[0] #return int.from_bytes(s, byteorder='little', signed=False)
     
     
     def get_magic_num(self, chr, power):
@@ -279,11 +284,10 @@ class BinCountReader(object):
             decoded correctly.
         """
         
-        return BinCountReader._get_magic_num(self._get_file(chr, power))
+        return self._get_magic_num(self._get_file(chr, power))
         
         
-    @staticmethod
-    def _get_bin_size(file):
+    def _get_bin_size(self, file):
         """
         Returns the bin size in bytes
         
@@ -298,10 +302,12 @@ class BinCountReader(object):
             Bin size in bytes, either 1, 2, or 4.
         """
         
-        f = open(file, 'rb')
-        f.seek(BIN_SIZE_OFFSET_BYTES)
-        s = f.read(1)
-        f.close()
+        s = self._read_data(file, 1, seek=BIN_SIZE_OFFSET_BYTES)
+        
+#        f = open(file, 'rb')
+#        f.seek(BIN_SIZE_OFFSET_BYTES)
+#        s = f.read(1)
+#        f.close()
         
         # return in bytes
         return struct.unpack('>B', s)[0]
@@ -321,43 +327,64 @@ class BinCountReader(object):
         int
             Bin size in bytes, either 1, 2, or 4.
         """
-        if power not in self.__bin_size_map[chr]:
-            self.__bin_size_map[chr][power] = BinCountReader._get_bin_size(self._get_file(chr, power))
+        if power not in self.bin_size_map[chr]:
+            self.bin_size_map[chr][power] = self._get_bin_size(self._get_file(chr, power))
             
-        return self.__bin_size_map[chr][power]
+        return self.bin_size_map[chr][power]
     
-    @staticmethod
-    def _get_bin_width(file):
-        f = open(file, 'rb')
-        f.seek(BIN_WIDTH_OFFSET_BYTES)
-        s = f.read(4)
-        f.close()
+    @property
+    def reads(self):
+        """
+        Return the number of reads in the library.
+        
+        Returns
+        -------
+        int
+            The number of reads in the library.
+        """
+        
+        if self._reads == -1:
+            # Cache the number of reads
+            file = 'reads.{}.{}.bc'.format(self.genome, self.mode)
+            
+            if os.path.exists(file):
+                f = open(file, 'rb')
+                self._reads = struct.unpack('>I', f.read(4))[0]
+                f.close()
+        
+        return self._reads
+    
+    def _get_bin_width(self, file):
+#        f = open(file, 'rb')
+#        f.seek(BIN_WIDTH_OFFSET_BYTES)
+#        s = f.read(4)
+#        f.close()
+        
+        s = self._read_data(file, 4, seek=BIN_WIDTH_OFFSET_BYTES)
         
         # return in bytes
         return struct.unpack('>I', s)[0]
-        
     
     def get_bin_width(self, chr):
-        return BinCountReader._get_bin_width(self._get_file(chr))
+        return self._get_bin_width(self._get_file(chr))
         
     
-    @staticmethod
-    def _get_bin_count(file):
-        f = open(file, 'rb')
-        f.seek(N_BINS_OFFSET_BYTES)
-        s = f.read(4)
-        f.close()
+    def _get_bin_count(self, file):
+#        f = open(file, 'rb')
+#        f.seek(N_BINS_OFFSET_BYTES)
+#        s = f.read(4)
+#        f.close()
+        
+        s = self._read_data(file, 4, seek=N_BINS_OFFSET_BYTES)
         
         # return in bytes
         return struct.unpack('>I', s)[0]
         
-    
     def get_bin_count(self, chr):
-        return BinCountReader._get_bin_count(self._get_file(chr))
+        return self._get_bin_count(self._get_file(chr))
         
     
-    @staticmethod
-    def _get_counts(file, loc, bin_width, bin_size):
+    def _get_counts(self, file, loc, bin_width, bin_size):
         sb = loc.start // bin_width
         eb = loc.end // bin_width
         n = max(1, eb - sb)
@@ -369,16 +396,18 @@ class BinCountReader(object):
             sa *= bin_size
             sn *= bin_size
         
-        f = open(file, 'rb')
+#        f = open(file, 'rb')
         
         # start address of seek
         
         #print('sa', BINS_OFFSET_BYTES, sa)
         
-        f.seek(BINS_OFFSET_BYTES + sa)
-        # read block of bytes to reduce file io
-        d = f.read(sn)
-        f.close()
+#        f.seek(BINS_OFFSET_BYTES + sa)
+#        # read block of bytes to reduce file io
+#        d = f.read(sn)
+#        f.close()
+        
+        d = self._read_data(file, sn, seek=BINS_OFFSET_BYTES + sa)
         
         ret = np.zeros(n, dtype=int)
         
@@ -404,7 +433,7 @@ class BinCountReader(object):
     
     def get_counts(self, loc, bin_width):
         """
-        Returns the mean counts of a binned region spanning the genomic
+        Returns the counts of a binned region spanning the genomic
         coordinates.
         
         Parameters
@@ -458,7 +487,7 @@ class BinCountReader(object):
         #print(self.get_bin_width(loc.chr))
         #print(self.get_bin_count(loc.chr))
         
-        d = BinCountReader._get_counts(file, loc, bin_width, bin_size)
+        d = self._get_counts(file, loc, bin_width, bin_size)
         
         if len(d) == 0:
             return NO_DATA
@@ -494,3 +523,29 @@ class BinCountReader(object):
             d = d2
         
         return d
+    
+    
+class S3BinCountReader(BinCountReader):
+    def __init__(self, bucket, genome, mode='max'):
+        super().__init__(bucket, genome, mode=mode)
+        self.fs = s3fs.S3FileSystem(anon=True)
+    
+    def _get_file(self, chr, power):
+        if power not in self.file_map[chr]:
+            # Need to search for exact chr within file otherwise chr1 can map
+            # to chr10 etc.
+            s = chr + '.'
+            p = '{}bw'.format(power)
+            
+            for file in self.fs.ls(self._dir):
+                if s in file and self.genome in file and p in file and self.mode in file:
+                    self.file_map[chr][power] = file #os.path.join(self.dir, file)
+                    break
+                
+        return self.file_map[chr][power]
+    
+    def _read_data(self, file, n, seek=0):
+        f = self.fs.open(file, 'rb')
+        f.seek(seek)
+        data = f.read(n)
+        return data
