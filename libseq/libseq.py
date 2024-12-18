@@ -13,7 +13,7 @@ import libbam
 import libdna
 import struct
 import os
-import s3fs
+ 
 
 # SAMTOOLS='/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-1.8/bin/samtools'
 # SAMTOOLS = '/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-0.1.19/samtools'
@@ -70,8 +70,8 @@ BINS_OFFSET_BYTES = N_BINS_OFFSET_BYTES + 4
 NO_DATA = np.zeros(0, dtype=int)
 
 
-class BinCountWriter(object):
-    def __init__(self, bam, genome, bin_width=100, mode="max"):
+class BinCountWriter:
+    def __init__(self, bam, genome, bin_width=100, mode="max", outdir="trackbin"):
         self.bam = bam
         self.dir = os.path.dirname(os.path.abspath(bam))
         self.genome = genome
@@ -83,6 +83,7 @@ class BinCountWriter(object):
         self.read_map = np.zeros(280000000, dtype=int)
         self.bin_map = collections.defaultdict(int)
         self.sum_c = 0
+        self._outdir = outdir
 
     def _reset(self):
         self.read_map.fill(0)
@@ -137,43 +138,43 @@ class BinCountWriter(object):
         print("Block size", bin_size_bytes, maxc)
 
         out = os.path.join(
-            self.dir,
-            f"{chr}.{self.genome}.{self.power}bw.{bin_size_bytes}byte.{self.mode}.bc",
+            self._outdir,
+            f"{chr}_bw{self.power}_c{self.mode}_{self.genome}.trackbin",
         )
 
-        print("Writing to {}...".format(out))
+        print(f"Writing to {out}..., block size {bin_size_bytes}")
 
         f = open(out, "wb")
-        f.write(struct.pack(">I", 42))
+        f.write(struct.pack("=I", 42))
         # Write the bin size in bytes, either 1, 2, or 4
-        f.write(struct.pack(">B", bin_size_bytes))
-        f.write(struct.pack(">I", self.bin_width))
+        f.write(struct.pack("=B", bin_size_bytes))
+        f.write(struct.pack("=I", self.bin_width))
         # so we know how many bytes are used to represent a count
         # f.write(struct.pack('B', size_in_bytes))
         # f.write(struct.pack('I', max_i))
         # f.write(bytes(read_map))
 
-        f.write(struct.pack(">I", len(block_map)))
+        f.write(struct.pack("=I", len(block_map)))
 
         if bin_size_bytes == 1:
             for c in block_map:
-                f.write(struct.pack(">B", c))
+                f.write(struct.pack("=B", c))
         elif bin_size_bytes == 2:
             for c in block_map:
-                f.write(struct.pack(">H", c))
+                f.write(struct.pack("=H", c))
         else:
             # use a full 32bit int
             for c in block_map:
-                f.write(struct.pack(">I", c))
+                f.write(struct.pack("=I", c))
 
         f.close()
 
-    def _write_count(self, reads):
+    def _write_count(self, reads:int):
         f = open(
-            os.path.join(self.dir, f"reads.{self.genome}.{self.mode}.bc"),
-            "wb",
+            os.path.join(self._outdir, f"reads.{self.genome}.{self.mode}.bc"),
+            "w",
         )
-        f.write(struct.pack(">I", reads))
+        print(str(reads), file=f)
         f.close()
 
         # f = open(os.path.join(self.dir, 'bc.reads.{}.{}.txt'.format(self.genome, self.mode)), 'w')
@@ -189,7 +190,7 @@ class BinCountWriter(object):
         # f.close()
 
     def write(self, chr):
-        sam = libbam.BamReader(self.bam, samtools=self.samtools)
+        sam = libbam.BamReader(self.bam)
 
         # reset the counts
         self._reset()
@@ -226,8 +227,8 @@ class BinCountWriter(object):
 
         self._write(chr)
 
-    def write_all(self):
-        sam = libbam.BamReader(self.bam, samtools=self.samtools)
+    def write_all_chr(self):
+        sam = libbam.BamReader(self.bam)
 
         chr = ""
         c = 0
@@ -239,7 +240,7 @@ class BinCountWriter(object):
         for read in sam:
             # assume bam is sorted, then
             # when we switch to a new chr, reset
-            # counts and begin aggregating again
+            # counts and begin aggregating againcd
             if read.chr != chr:
                 if c > 0:
                     self._write(chr)
@@ -275,7 +276,7 @@ class BinCountWriter(object):
         self._write_count(reads)
 
 
-class BinCountReader(object):
+class BinCountReader:
     def __init__(self, dir, genome, mode="max"):
         self._dir = dir
         self.genome = genome
@@ -317,7 +318,7 @@ class BinCountReader(object):
         data = self.read(file, 4)
 
         # return 42
-        return struct.unpack(">I", data)[
+        return struct.unpack("=I", data)[
             0
         ]  # return int.from_bytes(s, byteorder='little', signed=False)
 
@@ -363,7 +364,7 @@ class BinCountReader(object):
         #        f.close()
 
         # return in bytes
-        return struct.unpack(">B", s)[0]
+        return struct.unpack("=B", s)[0]
 
     def get_bin_size(self, chr, power):
         """
@@ -403,7 +404,7 @@ class BinCountReader(object):
 
             if os.path.exists(file):
                 f = open(file, "rb")
-                self._reads = struct.unpack(">I", f.read(4))[0]
+                self._reads = struct.unpack("=I", f.read(4))[0]
                 f.close()
 
         return self._reads
@@ -417,7 +418,7 @@ class BinCountReader(object):
         s = self._read_data(file, 4, seek=BIN_WIDTH_OFFSET_BYTES)
 
         # return in bytes
-        return struct.unpack(">I", s)[0]
+        return struct.unpack("=I", s)[0]
 
     def get_bin_width(self, chr):
         return self._get_bin_width(self._get_file(chr))
@@ -431,7 +432,7 @@ class BinCountReader(object):
         s = self._read_data(file, 4, seek=N_BINS_OFFSET_BYTES)
 
         # return in bytes
-        return struct.unpack(">I", s)[0]
+        return struct.unpack("=I", s)[0]
 
     def get_bin_count(self, chr):
         return self._get_bin_count(self._get_file(chr))
@@ -464,11 +465,11 @@ class BinCountReader(object):
         ret = np.zeros(n, dtype=int)
 
         if bin_size == 4:
-            d_type = ">I"
+            d_type = "=I"
         elif bin_size == 2:
-            d_type = ">H"
+            d_type = "=H"
         else:
-            d_type = ">B"
+            d_type = "=B"
 
         di = 0
         dn = len(d)
