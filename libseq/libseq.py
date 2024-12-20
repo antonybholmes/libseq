@@ -13,7 +13,7 @@ import libbam
 import libdna
 import struct
 import os
- 
+
 
 # SAMTOOLS='/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-1.8/bin/samtools'
 # SAMTOOLS = '/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-0.1.19/samtools'
@@ -63,7 +63,7 @@ MIN_BIN_WIDTH = 100
 
 MAGIC_NUMBER_OFFSET_BYTES = 0
 BIN_SIZE_OFFSET_BYTES = MAGIC_NUMBER_OFFSET_BYTES + 4
-BIN_WIDTH_OFFSET_BYTES = BIN_SIZE_OFFSET_BYTES + 1
+BIN_WIDTH_OFFSET_BYTES = BIN_SIZE_OFFSET_BYTES + 4
 N_BINS_OFFSET_BYTES = BIN_WIDTH_OFFSET_BYTES + 4
 BINS_OFFSET_BYTES = N_BINS_OFFSET_BYTES + 4
 
@@ -139,39 +139,105 @@ class BinCountWriter:
 
         out = os.path.join(
             self._outdir,
-            f"{chr}_bw{self.power}_c{self.mode}_{self.genome}.trackbin",
+            f"{chr}_bw{self.bin_width}_c{self.mode}_{self.genome}.trackbin",
         )
 
         print(f"Writing to {out}..., block size {bin_size_bytes}")
 
-        f = open(out, "wb")
-        f.write(struct.pack("=I", 42))
-        # Write the bin size in bytes, either 1, 2, or 4
-        f.write(struct.pack("=B", bin_size_bytes))
-        f.write(struct.pack("=I", self.bin_width))
-        # so we know how many bytes are used to represent a count
-        # f.write(struct.pack('B', size_in_bytes))
-        # f.write(struct.pack('I', max_i))
-        # f.write(bytes(read_map))
+        with open(out, "wb") as f:
+            f.write(struct.pack("=I", 42))
+            # Write the bin size in bytes, either 1, 2, or 4
+            f.write(struct.pack("=I", bin_size_bytes))
+            f.write(struct.pack("=I", self.bin_width))
+            # so we know how many bytes are used to represent a count
+            # f.write(struct.pack('B', size_in_bytes))
+            # f.write(struct.pack('I', max_i))
+            # f.write(bytes(read_map))
 
-        f.write(struct.pack("=I", len(block_map)))
+            f.write(struct.pack("=I", len(block_map)))
 
-        if bin_size_bytes == 1:
-            for c in block_map:
-                f.write(struct.pack("=B", c))
-        elif bin_size_bytes == 2:
-            for c in block_map:
-                f.write(struct.pack("=H", c))
-        else:
-            # use a full 32bit int
-            for c in block_map:
-                f.write(struct.pack("=I", c))
+            if bin_size_bytes == 1:
+                for c in block_map:
+                    f.write(struct.pack("=B", c))
+            elif bin_size_bytes == 2:
+                for c in block_map:
+                    f.write(struct.pack("=H", c))
+            else:
+                # use a full 32bit int
+                for c in block_map:
+                    f.write(struct.pack("=I", c))
 
-        f.close()
 
-    def _write_count(self, reads:int):
+    def _write_sql(self, chr):
+        if "_" in chr:
+            # only encode official chr
+            return
+
+        max_i = np.max(np.where(self.read_map > 0))
+        max_bin = math.floor(max_i / self.bin_width)
+        bins = max_bin + 1
+
+        block_map = np.zeros(bins, dtype=int)
+
+        i = 0
+
+        for b in range(0, bins):
+            if self.mode == "count":
+                c = self.bin_map[b]
+            elif self.mode == "max":
+                c = np.max(self.read_map[i : (i + self.bin_width)])
+            else:
+                # mean reads per bin
+                c = int(
+                    round(np.floor(np.mean(self.read_map[i : (i + self.bin_width)])))
+                )
+
+            block_map[b] = c
+
+            self.sum_c += c
+
+            i += self.bin_width
+
+        out = os.path.join(
+            self._outdir,
+            f"{chr}_bw{self.bin_width}_c{self.mode}_{self.genome}.sql",
+        )
+
+        print(f"Writing to {out}...")
+
+        with open(out, "w") as f:
+            print("BEGIN TRANSACTION;", file=f)
+            print(f"INSERT INTO info (genome, chr, bin_width) VALUES ('{self.genome}', '{chr}', {self.bin_width});", file=f)
+            print("COMMIT;", file=f)
+
+            print("BEGIN TRANSACTION;", file=f)
+
+            current_count = block_map[0]
+            start = 0
+            end = 0
+            running = False
+
+            for i, c in enumerate(block_map):
+                if c != current_count:
+                    if current_count > 0:
+                        print(f"INSERT INTO track (bin_start, bin_end, reads) VALUES ({start}, {end}, {current_count});", file=f)
+
+                    current_count = c
+                    start = i
+                    end = i
+                    running = False
+                else:
+                    end = i
+                    running = True
+
+            print(f"INSERT INTO track (bin_start, bin_end, reads) VALUES ({start}, {end}, {current_count});", file=f)
+
+            print("COMMIT;", file=f)
+ 
+
+    def _write_count(self, reads: int):
         f = open(
-            os.path.join(self._outdir, f"reads.{self.genome}.{self.mode}.bc"),
+            os.path.join(self._outdir, f"reads_{self.genome}.txt"),
             "w",
         )
         print(str(reads), file=f)
@@ -272,6 +338,55 @@ class BinCountWriter:
         # Process what is remaining
         if c > 0:
             self._write(chr)
+
+        self._write_count(reads)
+
+
+    def write_all_chr_sql(self):
+        sam = libbam.BamReader(self.bam)
+
+        chr = ""
+        c = 0
+
+        self.sum_c = 0
+
+        reads = 0
+
+        for read in sam:
+            # assume bam is sorted, then
+            # when we switch to a new chr, reset
+            # counts and begin aggregating againcd
+            if read.chr != chr:
+                if c > 0:
+                    self._write_sql(chr)
+
+                self._reset()
+                c = 0
+                chr = read.chr
+
+                print("Processing sql", chr, "...")
+
+            if self.mode == "count":
+                sb = math.floor(read.pos / self.bin_width)
+                eb = math.floor((read.pos + read.length - 1) / self.bin_width)
+
+                # unique reads in each bin
+                for b in range(sb, eb + 1):
+                    self.bin_map[b] += 1
+
+            # count reads at a 1bp resolution, which we can aggregate
+            # later
+            self.read_map[read.pos : (read.pos + read.length)] += 1
+
+            if c % 100000 == 0:
+                print("Processed", str(c), "reads...")
+
+            reads += 1
+            c += 1
+
+        # Process what is remaining
+        if c > 0:
+            self._write_sql(chr)
 
         self._write_count(reads)
 
