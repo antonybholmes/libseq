@@ -293,10 +293,10 @@ class BinCountWriter:
         os.makedirs(self._outdir, exist_ok=True)
 
         # delete the files for each bin
-        for bin_width in self._bin_widths:
-            out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
-            if os.path.exists(out):
-                os.remove(out)
+        # for bin_width in self._bin_widths:
+        #     out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
+        #     if os.path.exists(out):
+        #         os.remove(out)
 
         reader = libbam.BamReader(self.bam, paired=paired)
 
@@ -334,19 +334,19 @@ class BinCountWriter:
                 c += 1
 
             for bin_width in self._bin_widths:
-                out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
+                # out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
 
-                # if file does not exist, write heade
-                if not os.path.exists(out):
-                    with open(out, "w") as f:
-                        print("BEGIN TRANSACTION;", file=f)
-                        print(
-                            f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
-                            file=f,
-                        )
-                        print("COMMIT;", file=f)
+                # # if file does not exist, write heade
+                # if not os.path.exists(out):
+                #     with open(out, "w") as f:
+                #         print("BEGIN TRANSACTION;", file=f)
+                #         print(
+                #             f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
+                #             file=f,
+                #         )
+                #         print("COMMIT;", file=f)
 
-                self._write_chr_sql(chr, bin_width, out)
+                self._write_chr_sql(chr, bin_width) #, out)
 
         self._write_track_sql(reads)
 
@@ -365,13 +365,13 @@ class BinCountWriter:
             )
             print("COMMIT;", file=f)
 
-    def _write_chr_sql(self, chr: str, bin_width: int, out:str):
+    def _write_chr_sql(self, chr: str, bin_width: int):
         if "_" in chr:
             # only encode official chr
             return
 
-        #dir = os.path.join(self._outdir, f"bin{bin_width}")
-        #os.makedirs(dir, exist_ok=True)
+        dir = os.path.join(self._outdir, f"bin{bin_width}")
+        os.makedirs(dir, exist_ok=True)
 
         max_i = np.max(np.where(self._read_map > 0))
         max_bin = math.floor(max_i / bin_width)
@@ -403,20 +403,20 @@ class BinCountWriter:
 
             i += bin_width
 
-        # out = os.path.join(
-        #     dir,
-        #     f"{chr}_bin{bin_width}_{self._genome}.sql",
-        # )
+        out = os.path.join(
+            dir,
+            f"{chr}_bin{bin_width}_{self._genome}.sql",
+        )
 
         print(f"Writing to {out}...")
 
         with open(out, "a") as f:
-            # print("BEGIN TRANSACTION;", file=f)
-            # print(
-            #     f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
-            #     file=f,
-            # )
-            # print("COMMIT;", file=f)
+            print("BEGIN TRANSACTION;", file=f)
+            print(
+                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
+                file=f,
+            )
+            print("COMMIT;", file=f)
 
             print("BEGIN TRANSACTION;", file=f)
 
@@ -427,7 +427,7 @@ class BinCountWriter:
                 if c != current_count:
                     if current_count > 0:
                         print(
-                            f"INSERT INTO bins (chr, start, end, reads) VALUES ('{chr}', {start}, {i}, {current_count});",
+                            f"INSERT INTO bins (start, end, reads) VALUES ({start}, {i}, {current_count});",
                             file=f,
                         )
 
