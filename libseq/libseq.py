@@ -437,7 +437,7 @@ class BinCountWriter:
 
             # the last bin has an end 1 past the last index of the bins
             print(
-                f"INSERT INTO bins (chr, start, end, reads) VALUES ('{chr}', {start}, {len(block_map)}, {current_count});",
+                f"INSERT INTO bins (start, end, reads) VALUES ({start}, {len(block_map)}, {current_count});",
                 file=f,
             )
 
