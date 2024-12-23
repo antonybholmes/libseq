@@ -95,13 +95,13 @@ class BinCountWriter:
         self._mode = mode
         # cache counts
         self._read_map = np.zeros(280000000, dtype=int)
-        self.bin_map = collections.defaultdict(int)
+        self._bin_map = collections.defaultdict(int)
         self.sum_c = 0
         self._outdir = outdir  # os.path.join(outdir, genome, self._sample)
 
     def _reset(self):
         self._read_map.fill(0)
-        self.bin_map.clear()
+        self._bin_map.clear()
 
     def _write(self, chr):
         if "_" in chr:
@@ -118,7 +118,7 @@ class BinCountWriter:
 
         for b in range(0, bins):
             if self._stat == "count":
-                c = self.bin_map[b]
+                c = self._bin_map[b]
             elif self._stat == "max":
                 c = np.max(self._read_map[i : (i + self._bin_width)])
             else:
@@ -181,7 +181,7 @@ class BinCountWriter:
                 for c in block_map:
                     f.write(struct.pack("=I", c))
 
-    def _write_sql(self, chr):
+    def _write_sql(self, chr:str):
         if "_" in chr:
             # only encode official chr
             return
@@ -198,7 +198,7 @@ class BinCountWriter:
 
         for b in range(0, bins):
             if self._stat == "count":
-                c = self.bin_map[b]
+                c = self._bin_map[b]
             elif self._stat == "max":
                 c = np.max(self._read_map[i : (i + self._bin_width)])
             else:
@@ -218,7 +218,7 @@ class BinCountWriter:
 
         out = os.path.join(
             self._outdir,
-            f"{chr}_bw{self._bin_width}_c{self._stat}_{self._genome}.sql",
+            f"{chr}_bw{self._bin_width}_{self._genome}.sql",
         )
 
         print(f"Writing to {out}...")
@@ -226,7 +226,7 @@ class BinCountWriter:
         with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO info (platform, genome, sample, chr, bin_width) VALUES ('{self._platform}', '{self._genome}', '{self._sample}', '{chr}', {self._bin_width});",
+                f"INSERT INTO track (platform, genome, name, chr, bin_width, stat_mode) VALUES ('{self._platform}', '{self._genome}', '{self._sample}', '{chr}', {self._bin_width}, '{self._stat}');",
                 file=f,
             )
             print("COMMIT;", file=f)
@@ -240,7 +240,7 @@ class BinCountWriter:
                 if c != current_count:
                     if current_count > 0:
                         print(
-                            f"INSERT INTO track (bin_start, bin_end, reads) VALUES ({start}, {i}, {current_count});",
+                            f"INSERT INTO bins (start, end, reads) VALUES ({start}, {i}, {current_count});",
                             file=f,
                         )
 
@@ -250,19 +250,32 @@ class BinCountWriter:
 
             # the last bin has an end 1 past the last index of the bins
             print(
-                f"INSERT INTO track (bin_start, bin_end, reads) VALUES ({start}, {len(block_map)}, {current_count});",
+                f"INSERT INTO bins (start, end, reads) VALUES ({start}, {len(block_map)}, {current_count});",
                 file=f,
             )
 
             print("COMMIT;", file=f)
 
     def _write_count(self, reads: int):
-        f = open(
+        with open(
             os.path.join(self._outdir, f"reads_{self._genome}.txt"),
             "w",
-        )
-        print(str(reads), file=f)
-        f.close()
+        ) as f:
+            print(str(reads), file=f)
+
+    def _write_track_sql(self, reads: int):
+        id = f"{self._genome}:{self._platform}:{self._sample}"
+
+        with open(
+            os.path.join(self._outdir, "track.sql"),
+            "w",
+        ) as f:
+            print("BEGIN TRANSACTION;", file=f)
+            print(
+                f"INSERT INTO track (public_id, platform, genome, name, reads, stat_mode) VALUES ('{id}', '{self._platform}', '{self._genome}', '{self._sample}', {reads}, '{self._stat}');",
+                file=f,
+            )
+            print("COMMIT;", file=f)
 
         # f = open(os.path.join(self.dir, 'bc.reads.{}.{}.txt'.format(self.genome, self.mode)), 'w')
         # f.write(str(reads))
@@ -344,7 +357,7 @@ class BinCountWriter:
 
                 # unique reads in each bin
                 for b in range(sb, eb + 1):
-                    self.bin_map[b] += 1
+                    self._bin_map[b] += 1
 
             # count reads at a 1bp resolution, which we can aggregate
             # later
@@ -395,7 +408,7 @@ class BinCountWriter:
 
                 # unique reads in each bin
                 for b in range(sb, eb + 1):
-                    self.bin_map[b] += 1
+                    self._bin_map[b] += 1
 
             # count reads at a 1bp resolution, which we can aggregate
             # later
@@ -411,7 +424,7 @@ class BinCountWriter:
         if c > 0:
             self._write_sql(chr)
 
-        self._write_count(reads)
+        self._write_track_sql(reads)
 
 
 class BinCountReader:
