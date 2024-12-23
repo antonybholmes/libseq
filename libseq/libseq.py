@@ -181,10 +181,13 @@ class BinCountWriter:
                 for c in block_map:
                     f.write(struct.pack("=I", c))
 
-    def _write_sql(self, chr:str):
+    def _write_sql(self, chr: str):
         if "_" in chr:
             # only encode official chr
             return
+
+        dir = os.path.join(self._outdir, f"bin{self._bin_width}")
+        os.makedirs(dir, exist_ok=True)
 
         max_i = np.max(np.where(self._read_map > 0))
         max_bin = math.floor(max_i / self._bin_width)
@@ -217,8 +220,8 @@ class BinCountWriter:
             i += self._bin_width
 
         out = os.path.join(
-            self._outdir,
-            f"{chr}_bw{self._bin_width}_{self._genome}.sql",
+            dir,
+            f"{chr}_bin{self._bin_width}_{self._genome}.sql",
         )
 
         print(f"Writing to {out}...")
@@ -375,11 +378,13 @@ class BinCountWriter:
 
         self._write_count(reads)
 
-    def write_all_chr_sql(self):
+    def write_all_chr_sql(self, paired=False):
         # ensure out dir exists
         os.makedirs(self._outdir, exist_ok=True)
 
-        sam = libbam.BamReader(self.bam)
+        reader = libbam.BamReader(self.bam, paired=paired)
+
+        chrs = reader.chrs()
 
         chr = ""
         c = 0
@@ -388,40 +393,30 @@ class BinCountWriter:
 
         reads = 0
 
-        for read in sam:
-            # assume bam is sorted, then
-            # when we switch to a new chr, reset
-            # counts and begin aggregating againcd
-            if read.chr != chr:
-                if c > 0:
-                    self._write_sql(chr)
+        for chr in chrs:
+            self._reset()
+            c = 0
+            print("Processing sql", chr, "...")
 
-                self._reset()
-                c = 0
-                chr = read.chr
+            for read in reader.reads(chr):
+                if self._stat == "count":
+                    sb = math.floor(read.pos / self._bin_width)
+                    eb = math.floor((read.pos + read.length - 1) / self._bin_width)
 
-                print("Processing sql", chr, "...")
+                    # unique reads in each bin
+                    for b in range(sb, eb + 1):
+                        self._bin_map[b] += 1
 
-            if self._stat == "count":
-                sb = math.floor(read.pos / self._bin_width)
-                eb = math.floor((read.pos + read.length - 1) / self._bin_width)
+                # count reads at a 1bp resolution, which we can aggregate
+                # later
+                self._read_map[read.pos : (read.pos + read.length)] += 1
 
-                # unique reads in each bin
-                for b in range(sb, eb + 1):
-                    self._bin_map[b] += 1
+                if c % 100000 == 0:
+                    print("Processed", str(c), "reads...")
 
-            # count reads at a 1bp resolution, which we can aggregate
-            # later
-            self._read_map[read.pos : (read.pos + read.length)] += 1
+                reads += 1
+                c += 1
 
-            if c % 100000 == 0:
-                print("Processed", str(c), "reads...")
-
-            reads += 1
-            c += 1
-
-        # Process what is remaining
-        if c > 0:
             self._write_sql(chr)
 
         self._write_track_sql(reads)
