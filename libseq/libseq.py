@@ -89,7 +89,7 @@ class BinCountWriter:
         self._genome = genome
         self._platform = platform
         # self.samtools = samtools
-        self.power = POWER[bin_width]
+        #self._power = POWER[bin_width]
         self._bin_width = bin_width
         self._stat = stat
         self._mode = mode
