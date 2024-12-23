@@ -381,7 +381,7 @@ class BinCountWriter:
 
         i = 0
 
-        print("writing sql", out, chr, self._mode, self._stat, bin_width)
+        print("writing sql",  chr, self._mode, self._stat, bin_width)
 
         for b in range(0, bins):
             if self._stat == "count":
