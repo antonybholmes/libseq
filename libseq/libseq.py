@@ -328,9 +328,7 @@ class BinCountWriter:
                 c += 1
 
             for bin_width in self._bin_widths:
-                out = os.path.join(
-                    dir,
-                    f"bin{bin_width}_{self._genome}.sql",
+                out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql",
                 )
 
                 with open(out, "w") as f:
