@@ -292,6 +292,12 @@ class BinCountWriter:
         # ensure out dir exists
         os.makedirs(self._outdir, exist_ok=True)
 
+        # delete the files for each bin
+        for bin_width in self._bin_widths:
+            out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql")
+            if os.path.exists(out):
+                os.remove(out)
+
         reader = libbam.BamReader(self.bam, paired=paired)
 
         chrs = reader.chrs()
@@ -328,16 +334,17 @@ class BinCountWriter:
                 c += 1
 
             for bin_width in self._bin_widths:
-                out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql",
-                )
+                out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql")
 
-                with open(out, "w") as f:
-                    print("BEGIN TRANSACTION;", file=f)
-                    print(
-                        f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
-                        file=f,
-                    )
-                    print("COMMIT;", file=f)
+                # if file does not exist, write heade
+                if not os.path.exists(out):
+                    with open(out, "w") as f:
+                        print("BEGIN TRANSACTION;", file=f)
+                        print(
+                            f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
+                            file=f,
+                        )
+                        print("COMMIT;", file=f)
 
                 self._write_chr_sql(chr, bin_width, out)
 
@@ -404,12 +411,12 @@ class BinCountWriter:
         print(f"Writing to {out}...")
 
         with open(out, "a") as f:
-            print("BEGIN TRANSACTION;", file=f)
-            print(
-                f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
-                file=f,
-            )
-            print("COMMIT;", file=f)
+            # print("BEGIN TRANSACTION;", file=f)
+            # print(
+            #     f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
+            #     file=f,
+            # )
+            # print("COMMIT;", file=f)
 
             print("BEGIN TRANSACTION;", file=f)
 
