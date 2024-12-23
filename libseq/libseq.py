@@ -197,7 +197,7 @@ class BinCountWriter:
 
         i = 0
 
-        print("writing sql", chr, self._mode, self._stat)
+        print("writing sql", chr, self._mode, self._stat, self._bin_width)
 
         for b in range(0, bins):
             if self._stat == "count":
@@ -229,7 +229,7 @@ class BinCountWriter:
         with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO track (platform, genome, name, chr, bin_width, stat_mode) VALUES ('{self._platform}', '{self._genome}', '{self._sample}', '{chr}', {self._bin_width}, '{self._stat}');",
+                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {self._bin_width}, '{self._stat}');",
                 file=f,
             )
             print("COMMIT;", file=f)
@@ -275,7 +275,7 @@ class BinCountWriter:
         ) as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO track (public_id, platform, genome, name, reads, stat_mode) VALUES ('{id}', '{self._platform}', '{self._genome}', '{self._sample}', {reads}, '{self._stat}');",
+                f"INSERT INTO track (public_id, genome, platform, name, reads, stat_mode) VALUES ('{id}', '{self._genome}', '{self._platform}', '{self._sample}', {reads}, '{self._stat}');",
                 file=f,
             )
             print("COMMIT;", file=f)
