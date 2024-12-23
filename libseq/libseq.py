@@ -181,84 +181,6 @@ class BinCountWriter:
                 for c in block_map:
                     f.write(struct.pack("=I", c))
 
-    def _write_sql(self, chr: str, bin_width: int):
-        if "_" in chr:
-            # only encode official chr
-            return
-
-        dir = os.path.join(self._outdir, f"bin{bin_width}")
-        os.makedirs(dir, exist_ok=True)
-
-        max_i = np.max(np.where(self._read_map > 0))
-        max_bin = math.floor(max_i / bin_width)
-        bins = max_bin + 1
-
-        block_map = np.zeros(bins, dtype=int)
-
-        i = 0
-
-        print("writing sql", chr, self._mode, self._stat, bin_width)
-
-        for b in range(0, bins):
-            if self._stat == "count":
-                c = self._bin_map[b]
-            elif self._stat == "max":
-                c = np.max(self._read_map[i : (i + bin_width)])
-            else:
-                # mean reads per bin
-                c = int(round(np.mean(self._read_map[i : (i + bin_width)])))
-
-            if self._mode == "round2":
-                # round to nearest multiple of 2 so that we reduce
-                # bin variation to make smaller bins
-                c = int(np.round(c / 2)) * 2
-
-            block_map[b] = c
-
-            self.sum_c += c
-
-            i += bin_width
-
-        out = os.path.join(
-            dir,
-            f"{chr}_bin{bin_width}_{self._genome}.sql",
-        )
-
-        print(f"Writing to {out}...")
-
-        with open(out, "w") as f:
-            print("BEGIN TRANSACTION;", file=f)
-            print(
-                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
-                file=f,
-            )
-            print("COMMIT;", file=f)
-
-            print("BEGIN TRANSACTION;", file=f)
-
-            current_count = block_map[0]
-            start = 0
-
-            for i, c in enumerate(block_map):
-                if c != current_count:
-                    if current_count > 0:
-                        print(
-                            f"INSERT INTO bins (start, end, reads) VALUES ({start}, {i}, {current_count});",
-                            file=f,
-                        )
-
-                    current_count = c
-                    start = i
-                    running = False
-
-            # the last bin has an end 1 past the last index of the bins
-            print(
-                f"INSERT INTO bins (start, end, reads) VALUES ({start}, {len(block_map)}, {current_count});",
-                file=f,
-            )
-
-            print("COMMIT;", file=f)
-
     def _write_count(self, reads: int):
         with open(
             os.path.join(self._outdir, f"reads_{self._genome}.txt"),
@@ -266,19 +188,7 @@ class BinCountWriter:
         ) as f:
             print(str(reads), file=f)
 
-    def _write_track_sql(self, reads: int):
-        id = f"{self._genome}:{self._platform}:{self._sample}"
 
-        with open(
-            os.path.join(self._outdir, "track.sql"),
-            "w",
-        ) as f:
-            print("BEGIN TRANSACTION;", file=f)
-            print(
-                f"INSERT INTO track (public_id, genome, platform, name, reads, stat_mode) VALUES ('{id}', '{self._genome}', '{self._platform}', '{self._sample}', {reads}, '{self._stat}');",
-                file=f,
-            )
-            print("COMMIT;", file=f)
 
         # f = open(os.path.join(self.dir, 'bc.reads.{}.{}.txt'.format(self.genome, self.mode)), 'w')
         # f.write(str(reads))
@@ -418,10 +328,115 @@ class BinCountWriter:
                 c += 1
 
             for bin_width in self._bin_widths:
-                self._write_sql(chr, bin_width)
+                out = os.path.join(
+                    dir,
+                    f"bin{bin_width}_{self._genome}.sql",
+                )
+
+                with open(out, "w") as f:
+                    print("BEGIN TRANSACTION;", file=f)
+                    print(
+                        f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
+                        file=f,
+                    )
+                    print("COMMIT;", file=f)
+
+                self._write_chr_sql(chr, bin_width, out)
 
         self._write_track_sql(reads)
 
+
+    def _write_track_sql(self, reads: int):
+        id = f"{self._genome}:{self._platform}:{self._sample}"
+
+        with open(
+            os.path.join(self._outdir, "track.sql"),
+            "w",
+        ) as f:
+            print("BEGIN TRANSACTION;", file=f)
+            print(
+                f"INSERT INTO track (public_id, genome, platform, name, reads, stat_mode) VALUES ('{id}', '{self._genome}', '{self._platform}', '{self._sample}', {reads}, '{self._stat}');",
+                file=f,
+            )
+            print("COMMIT;", file=f)
+
+    def _write_chr_sql(self, chr: str, bin_width: int, out:str):
+        if "_" in chr:
+            # only encode official chr
+            return
+
+        #dir = os.path.join(self._outdir, f"bin{bin_width}")
+        #os.makedirs(dir, exist_ok=True)
+
+        max_i = np.max(np.where(self._read_map > 0))
+        max_bin = math.floor(max_i / bin_width)
+        bins = max_bin + 1
+
+        block_map = np.zeros(bins, dtype=int)
+
+        i = 0
+
+        print("writing sql", out, chr, self._mode, self._stat, bin_width)
+
+        for b in range(0, bins):
+            if self._stat == "count":
+                c = self._bin_map[b]
+            elif self._stat == "max":
+                c = np.max(self._read_map[i : (i + bin_width)])
+            else:
+                # mean reads per bin
+                c = int(round(np.mean(self._read_map[i : (i + bin_width)])))
+
+            if self._mode == "round2":
+                # round to nearest multiple of 2 so that we reduce
+                # bin variation to make smaller bins
+                c = int(np.round(c / 2)) * 2
+
+            block_map[b] = c
+
+            self.sum_c += c
+
+            i += bin_width
+
+        # out = os.path.join(
+        #     dir,
+        #     f"{chr}_bin{bin_width}_{self._genome}.sql",
+        # )
+
+        print(f"Writing to {out}...")
+
+        with open(out, "a") as f:
+            print("BEGIN TRANSACTION;", file=f)
+            print(
+                f"INSERT INTO track (genome, platform, name, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', {bin_width}, '{self._stat}');",
+                file=f,
+            )
+            print("COMMIT;", file=f)
+
+            print("BEGIN TRANSACTION;", file=f)
+
+            current_count = block_map[0]
+            start = 0
+
+            for i, c in enumerate(block_map):
+                if c != current_count:
+                    if current_count > 0:
+                        print(
+                            f"INSERT INTO bins (chr, start, end, reads) VALUES ('{chr}', {start}, {i}, {current_count});",
+                            file=f,
+                        )
+
+                    current_count = c
+                    start = i
+                    running = False
+
+            # the last bin has an end 1 past the last index of the bins
+            print(
+                f"INSERT INTO bins (chr, start, end, reads) VALUES ('{chr}', {start}, {len(block_map)}, {current_count});",
+                file=f,
+            )
+
+            print("COMMIT;", file=f)
 
 class BinCountReader:
     def __init__(self, dir, genome, mode="max"):
