@@ -294,7 +294,7 @@ class BinCountWriter:
 
         # delete the files for each bin
         for bin_width in self._bin_widths:
-            out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql")
+            out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
             if os.path.exists(out):
                 os.remove(out)
 
@@ -334,7 +334,7 @@ class BinCountWriter:
                 c += 1
 
             for bin_width in self._bin_widths:
-                out = os.path.join(self._dir, f"bin{bin_width}_{self._genome}.sql")
+                out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
 
                 # if file does not exist, write heade
                 if not os.path.exists(out):
