@@ -76,7 +76,7 @@ class BinCountWriter:
         sample,
         bam,
         genome,
-        bin_width=100,
+        bin_widths=[128],
         platform="ChIP-seq",
         stat="mean",
         mode="round2",
@@ -90,7 +90,7 @@ class BinCountWriter:
         self._platform = platform
         # self.samtools = samtools
         #self._power = POWER[bin_width]
-        self._bin_width = bin_width
+        self._bin_widths = bin_widths
         self._stat = stat
         self._mode = mode
         # cache counts
@@ -181,32 +181,32 @@ class BinCountWriter:
                 for c in block_map:
                     f.write(struct.pack("=I", c))
 
-    def _write_sql(self, chr: str):
+    def _write_sql(self, chr: str, bin_width:int):
         if "_" in chr:
             # only encode official chr
             return
 
-        dir = os.path.join(self._outdir, f"bin{self._bin_width}")
+        dir = os.path.join(self._outdir, f"bin{bin_width}")
         os.makedirs(dir, exist_ok=True)
 
         max_i = np.max(np.where(self._read_map > 0))
-        max_bin = math.floor(max_i / self._bin_width)
+        max_bin = math.floor(max_i / bin_width)
         bins = max_bin + 1
 
         block_map = np.zeros(bins, dtype=int)
 
         i = 0
 
-        print("writing sql", chr, self._mode, self._stat, self._bin_width)
+        print("writing sql", chr, self._mode, self._stat, bin_width)
 
         for b in range(0, bins):
             if self._stat == "count":
                 c = self._bin_map[b]
             elif self._stat == "max":
-                c = np.max(self._read_map[i : (i + self._bin_width)])
+                c = np.max(self._read_map[i : (i + bin_width)])
             else:
                 # mean reads per bin
-                c = int(round(np.mean(self._read_map[i : (i + self._bin_width)])))
+                c = int(round(np.mean(self._read_map[i : (i + bin_width)])))
 
             if self._mode == "round2":
                 # round to nearest multiple of 2 so that we reduce
@@ -217,11 +217,11 @@ class BinCountWriter:
 
             self.sum_c += c
 
-            i += self._bin_width
+            i += bin_width
 
         out = os.path.join(
             dir,
-            f"{chr}_bin{self._bin_width}_{self._genome}.sql",
+            f"{chr}_bin{bin_width}_{self._genome}.sql",
         )
 
         print(f"Writing to {out}...")
@@ -229,7 +229,7 @@ class BinCountWriter:
         with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {self._bin_width}, '{self._stat}');",
+                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
                 file=f,
             )
             print("COMMIT;", file=f)
@@ -416,8 +416,9 @@ class BinCountWriter:
 
                 reads += 1
                 c += 1
-
-            self._write_sql(chr)
+            
+            for bin_width in self._bin_widths:
+                self._write_sql(chr, bin_width)
 
         self._write_track_sql(reads)
 
