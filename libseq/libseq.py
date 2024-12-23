@@ -89,7 +89,7 @@ class BinCountWriter:
         self._genome = genome
         self._platform = platform
         # self.samtools = samtools
-        #self._power = POWER[bin_width]
+        # self._power = POWER[bin_width]
         self._bin_widths = bin_widths
         self._stat = stat
         self._mode = mode
@@ -181,7 +181,7 @@ class BinCountWriter:
                 for c in block_map:
                     f.write(struct.pack("=I", c))
 
-    def _write_sql(self, chr: str, bin_width:int):
+    def _write_sql(self, chr: str, bin_width: int):
         if "_" in chr:
             # only encode official chr
             return
@@ -416,7 +416,7 @@ class BinCountWriter:
 
                 reads += 1
                 c += 1
-            
+
             for bin_width in self._bin_widths:
                 self._write_sql(chr, bin_width)
 
