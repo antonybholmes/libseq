@@ -410,7 +410,7 @@ class BinCountWriter:
 
         print(f"Writing to {out}...")
 
-        with open(out, "a") as f:
+        with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
                 f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
@@ -433,7 +433,6 @@ class BinCountWriter:
 
                     current_count = c
                     start = i
-                    running = False
 
             # the last bin has an end 1 past the last index of the bins
             print(
