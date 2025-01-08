@@ -334,8 +334,10 @@ class BinCountWriter:
 
                 chr_reads += 1
                 c += 1
-            
+
             reads += chr_reads
+
+            print("chr reads", chr, chr_reads)
 
             for bin_width in self._bin_widths:
                 # out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
@@ -355,7 +357,6 @@ class BinCountWriter:
         self._write_track_sql(reads)
 
     def _write_track_sql(self, reads: int):
-       
         id = f"{self._genome}:{self._platform}:{self._sample}"
 
         with open(
@@ -369,7 +370,6 @@ class BinCountWriter:
             )
             print("COMMIT;", file=f)
 
-        print("aha")
 
     def _write_chr_sql(self, chr: str, bin_width: int, reads: int):
         if "_" in chr:
@@ -384,8 +384,8 @@ class BinCountWriter:
             f"{chr}_bin{bin_width}_{self._genome}.sql",
         )
 
-        if os.path.exists(out):
-            return
+        # if os.path.exists(out):
+        #    return
 
         max_i = np.max(np.where(self._read_map > 0))
         max_bin = math.floor(max_i / bin_width)
@@ -393,31 +393,29 @@ class BinCountWriter:
 
         block_map = np.zeros(bins, dtype=int)
 
-        i = 0
+        bi = 0
 
-        print("writing sql", chr, self._mode, self._stat, bin_width)
+        # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
 
         for b in range(0, bins):
             if self._stat == "count":
-                c = self._bin_map[b]
+                count = self._bin_map[b]
             elif self._stat == "max":
-                c = np.max(self._read_map[i : (i + bin_width)])
+                count = np.max(self._read_map[bi : (bi + bin_width)])
             else:
                 # mean reads per bin
-                c = int(np.round(np.mean(self._read_map[i : (i + bin_width)])))
+                count = int(np.round(np.mean(self._read_map[bi : (bi + bin_width)])))
 
             if self._mode == "round2":
                 # round to nearest multiple of 2 so that we reduce
                 # bin variation to make smaller bins
-                c = int(np.round(c / 2)) * 2
+                count = int(np.round(count / 2)) * 2
 
-            block_map[b] = c
+            block_map[b] = count
 
-            self.sum_c += c
+            self.sum_c += count
 
-            i += bin_width
-
-        
+            bi += bin_width
 
         print(f"Writing to {out}...")
 
@@ -432,22 +430,27 @@ class BinCountWriter:
             print("BEGIN TRANSACTION;", file=f)
 
             current_count = block_map[0]
-            start = 0
+            start_bin = 0
 
-            for i, c in enumerate(block_map):
-                if c != current_count:
+            for bi, count in enumerate(block_map):
+                if count != current_count:
                     if current_count > 0:
+                        start1 = start_bin * bin_width + 1
+                        end1 = bi * bin_width  # + 1
                         print(
-                            f"INSERT INTO bins (start, end, reads) VALUES ({start}, {i}, {current_count});",
+                            f"INSERT INTO bins (start, end, reads) VALUES ({start1}, {end1}, {current_count});",
                             file=f,
                         )
 
-                    current_count = c
-                    start = i
+                    current_count = count
+                    start_bin = bi
 
-            # the last bin has an end 1 past the last index of the bins
+            # in this 1 based system, start and end are inclusive
+            start1 = start_bin * bin_width + 1
+            end1 = len(block_map) * bin_width
+            
             print(
-                f"INSERT INTO bins (start, end, reads) VALUES ({start}, {len(block_map)}, {current_count});",
+                f"INSERT INTO bins (start, end, reads) VALUES ({start1}, {end1}, {current_count});",
                 file=f,
             )
 
