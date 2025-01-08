@@ -188,8 +188,6 @@ class BinCountWriter:
         ) as f:
             print(str(reads), file=f)
 
-
-
         # f = open(os.path.join(self.dir, 'bc.reads.{}.{}.txt'.format(self.genome, self.mode)), 'w')
         # f.write(str(reads))
         # f.close()
@@ -313,11 +311,15 @@ class BinCountWriter:
             self._reset()
             c = 0
             print("Processing sql", chr, "...")
+            chr_reads = 0
 
             for read in reader.reads(chr):
+                # convert to zero based
+                start = read.pos - 1
+
                 if self._stat == "count":
-                    sb = math.floor(read.pos / self._bin_width)
-                    eb = math.floor((read.pos + read.length - 1) / self._bin_width)
+                    sb = math.floor(start / self._bin_width)
+                    eb = math.floor((start + read.length - 1) / self._bin_width)
 
                     # unique reads in each bin
                     for b in range(sb, eb + 1):
@@ -325,13 +327,15 @@ class BinCountWriter:
 
                 # count reads at a 1bp resolution, which we can aggregate
                 # later
-                self._read_map[read.pos : (read.pos + read.length)] += 1
+                self._read_map[start : (start + read.length)] += 1
 
                 if c % 100000 == 0:
                     print("Processed", str(c), "reads...")
 
-                reads += 1
+                chr_reads += 1
                 c += 1
+            
+            reads += chr_reads
 
             for bin_width in self._bin_widths:
                 # out = os.path.join(self._outdir, f"bin{bin_width}_{self._genome}.sql")
@@ -346,12 +350,12 @@ class BinCountWriter:
                 #         )
                 #         print("COMMIT;", file=f)
 
-                self._write_chr_sql(chr, bin_width) #, out)
+                self._write_chr_sql(chr, bin_width, chr_reads)  # , out)
 
         self._write_track_sql(reads)
 
-
     def _write_track_sql(self, reads: int):
+       
         id = f"{self._genome}:{self._platform}:{self._sample}"
 
         with open(
@@ -365,13 +369,23 @@ class BinCountWriter:
             )
             print("COMMIT;", file=f)
 
-    def _write_chr_sql(self, chr: str, bin_width: int):
+        print("aha")
+
+    def _write_chr_sql(self, chr: str, bin_width: int, reads: int):
         if "_" in chr:
             # only encode official chr
             return
 
         dir = os.path.join(self._outdir, f"bin{bin_width}")
         os.makedirs(dir, exist_ok=True)
+
+        out = os.path.join(
+            dir,
+            f"{chr}_bin{bin_width}_{self._genome}.sql",
+        )
+
+        if os.path.exists(out):
+            return
 
         max_i = np.max(np.where(self._read_map > 0))
         max_bin = math.floor(max_i / bin_width)
@@ -381,7 +395,7 @@ class BinCountWriter:
 
         i = 0
 
-        print("writing sql",  chr, self._mode, self._stat, bin_width)
+        print("writing sql", chr, self._mode, self._stat, bin_width)
 
         for b in range(0, bins):
             if self._stat == "count":
@@ -390,7 +404,7 @@ class BinCountWriter:
                 c = np.max(self._read_map[i : (i + bin_width)])
             else:
                 # mean reads per bin
-                c = int(round(np.mean(self._read_map[i : (i + bin_width)])))
+                c = int(np.round(np.mean(self._read_map[i : (i + bin_width)])))
 
             if self._mode == "round2":
                 # round to nearest multiple of 2 so that we reduce
@@ -403,17 +417,14 @@ class BinCountWriter:
 
             i += bin_width
 
-        out = os.path.join(
-            dir,
-            f"{chr}_bin{bin_width}_{self._genome}.sql",
-        )
+        
 
         print(f"Writing to {out}...")
 
         with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}');",
+                f"INSERT INTO track (genome, platform, name, chr, bin_width, stat_mode, reads) VALUES ('{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, '{self._stat}', {reads});",
                 file=f,
             )
             print("COMMIT;", file=f)
@@ -441,6 +452,7 @@ class BinCountWriter:
             )
 
             print("COMMIT;", file=f)
+
 
 class BinCountReader:
     def __init__(self, dir, genome, mode="max"):
@@ -484,9 +496,8 @@ class BinCountReader:
         data = self.read(file, 4)
 
         # return 42
-        return struct.unpack("=I", data)[
-            0
-        ]  # return int.from_bytes(s, byteorder='little', signed=False)
+        return struct.unpack("=I", data)[0]
+        # return int.from_bytes(s, byteorder='little', signed=False)
 
     def get_magic_num(self, chr, power):
         """
