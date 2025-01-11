@@ -335,6 +335,8 @@ class BinCountWriter:
 
                 read_length = abs(read.tlen)
 
+                print(start, read_length)
+
                 # if self._stat == "count":
                 #     sb = math.floor(start / self._bin_width)
                 #     eb = math.floor((start + read.length - 1) / self._bin_width)
