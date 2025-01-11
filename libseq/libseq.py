@@ -77,7 +77,7 @@ class BinCountWriter:
         sample,
         bam,
         genome,
-        bin_widths=[128],
+        bin_sizes=[128],
         platform="ChIP-seq",
         min_reads=2,
         stat="mean",
@@ -93,7 +93,7 @@ class BinCountWriter:
         self._platform = platform
         # self.samtools = samtools
         # self._power = POWER[bin_width]
-        self._bin_widths = bin_widths
+        self._bin_sizes = bin_sizes
         self._stat = stat
         self._mode = mode
         self._min_reads = 2
@@ -344,7 +344,7 @@ class BinCountWriter:
                 #         self._bin_map[b] += 1
 
                 # for all bins calc unique reads per bin
-                for bin_width in self._bin_widths:
+                for bin_width in self._bin_sizes:
                     sb = math.floor(start / bin_width)
                     eb = math.floor((start + read_length - 1) / bin_width)
                     for b in range(sb, eb + 1):
@@ -370,7 +370,7 @@ class BinCountWriter:
         scale_factors = {}
 
         # write details for each bin group
-        for bin_width in self._bin_widths:
+        for bin_width in self._bin_sizes:
             scale_factor = self._write_bin_group_sql(bin_width, reads)
             scale_factors[bin_width] = scale_factor
 
@@ -379,7 +379,7 @@ class BinCountWriter:
             if not chr.startswith("chr"):
                 chr = "chr" + chr
 
-            self._write_chr_sql(chr, bin_widths, chr_read_map[chr], scale_factors)
+            self._write_chr_sql(chr, self._bin_sizes, chr_read_map[chr], scale_factors)
 
         # # write data for each chr of each bin group
         # for chr in chrs:
@@ -414,7 +414,7 @@ class BinCountWriter:
             )
             print("COMMIT;", file=f)
 
-    def _write_bin_group_sql(self, bin_width: int, all_reads: int):
+    def _write_bin_group_sql(self, bin_size: int, all_reads: int):
         # dir = os.path.join(self._outdir, f"bin{bin_width}")
         # os.makedirs(dir, exist_ok=True)
 
@@ -427,8 +427,8 @@ class BinCountWriter:
 
         for chr in self._bin_map:
             print(chr)
-            for b in self._bin_map[chr][bin_width]:
-                reads = self._bin_map[chr][bin_width][b]
+            for b in self._bin_map[chr][bin_size]:
+                reads = self._bin_map[chr][bin_size][b]
 
                 # if self._mode == "round2":
                 #    reads = int(np.round(reads / 2)) * 2
