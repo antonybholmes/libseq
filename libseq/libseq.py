@@ -306,6 +306,8 @@ class BinCountWriter:
 
         chrs = reader.chrs()
 
+        print(chrs)
+      
         chr = ""
         c = 0
 
@@ -314,14 +316,20 @@ class BinCountWriter:
         reads = 0
 
         chr_read_map = collections.defaultdict(int)
+        
+        # sometimes bam_chr does not contain chr prefix
+        for bam_chr in chrs:
+            chr = bam_chr
+            if not chr.startswith("chr"):
+                chr = "chr" + chr
 
-        for chr in chrs:
             # self._reset()
             c = 0
             print("Processing sql", chr, "...")
             chr_reads = 0
 
-            for read in reader.reads(chr):
+            for read in reader.reads(bam_chr):
+           
                 # convert to zero based
                 start = read.pos - 1
 
@@ -361,7 +369,11 @@ class BinCountWriter:
         for bin_width in self._bin_widths:
             scaling_factor = self._write_bin_group_sql(bin_width, reads)
 
-            for chr in chrs:
+            for bam_chr in chrs:
+                chr = bam_chr
+                if not chr.startswith("chr"):
+                    chr = "chr" + chr
+
                 self._write_chr_sql(chr, bin_width, chr_read_map[chr], scaling_factor)
 
         # # write data for each chr of each bin group
@@ -584,6 +596,7 @@ class BinCountWriter:
 
             print("COMMIT;", file=f)
 
+     
 
 class BinCountReader:
     def __init__(self, dir, genome, mode="max"):
