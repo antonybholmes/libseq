@@ -307,7 +307,7 @@ class BinCountWriter:
         chrs = reader.chrs()
 
         print(chrs)
-      
+
         chr = ""
         c = 0
 
@@ -316,7 +316,7 @@ class BinCountWriter:
         reads = 0
 
         chr_read_map = collections.defaultdict(int)
-        
+
         # sometimes bam_chr does not contain chr prefix
         for bam_chr in chrs:
             chr = bam_chr
@@ -329,9 +329,11 @@ class BinCountWriter:
             chr_reads = 0
 
             for read in reader.reads(bam_chr):
-           
+
                 # convert to zero based
-                start = read.pos - 1
+                start = min(read.pos, read.pnext) - 1
+
+                read_length = abs(read.tlen)
 
                 # if self._stat == "count":
                 #     sb = math.floor(start / self._bin_width)
@@ -344,7 +346,7 @@ class BinCountWriter:
                 # for all bins calc unique reads per bin
                 for bin_width in self._bin_widths:
                     sb = math.floor(start / bin_width)
-                    eb = math.floor((start + read.length - 1) / bin_width)
+                    eb = math.floor((start + read_length - 1) / bin_width)
                     for b in range(sb, eb + 1):
                         self._bin_map[chr][bin_width][b] += 1
 
@@ -365,16 +367,19 @@ class BinCountWriter:
 
             print("chr reads", chr, chr_reads)
 
+        scale_factors = {}
+
         # write details for each bin group
         for bin_width in self._bin_widths:
-            scaling_factor = self._write_bin_group_sql(bin_width, reads)
+            scale_factor = self._write_bin_group_sql(bin_width, reads)
+            scale_factors[bin_width] = scale_factor
 
-            for bam_chr in chrs:
-                chr = bam_chr
-                if not chr.startswith("chr"):
-                    chr = "chr" + chr
+        for bam_chr in chrs:
+            chr = bam_chr
+            if not chr.startswith("chr"):
+                chr = "chr" + chr
 
-                self._write_chr_sql(chr, bin_width, chr_read_map[chr], scaling_factor)
+            self._write_chr_sql(chr, bin_widths, chr_read_map[chr], scale_factors)
 
         # # write data for each chr of each bin group
         # for chr in chrs:
@@ -410,13 +415,13 @@ class BinCountWriter:
             print("COMMIT;", file=f)
 
     def _write_bin_group_sql(self, bin_width: int, all_reads: int):
-        dir = os.path.join(self._outdir, f"bin{bin_width}")
-        os.makedirs(dir, exist_ok=True)
+        # dir = os.path.join(self._outdir, f"bin{bin_width}")
+        # os.makedirs(dir, exist_ok=True)
 
-        out = os.path.join(
-            dir,
-            f"track_bin{bin_width}_{self._genome}.sql",
-        )
+        # out = os.path.join(
+        #    dir,
+        #   f"track_bin{bin_width}_{self._genome}.sql",
+        # )
 
         total_reads = 0
 
@@ -425,14 +430,14 @@ class BinCountWriter:
             for b in self._bin_map[chr][bin_width]:
                 reads = self._bin_map[chr][bin_width][b]
 
-                #if self._mode == "round2":
+                # if self._mode == "round2":
                 #    reads = int(np.round(reads / 2)) * 2
 
                 total_reads += reads
 
         # print(chr, total_reads)
 
-        scaling_factor = total_reads / 1000000
+        scaling_factor = 1000000 / total_reads
 
         # print(f"Writing to {out}...")
 
@@ -446,157 +451,138 @@ class BinCountWriter:
 
         return scaling_factor
 
-    def _write_chr_sql(self, chr: str, bin_width: int, chr_reads: int, scaling_factor: float):
+    def _write_chr_sql(
+        self,
+        chr: str,
+        bin_sizes: list[int],
+        chr_reads: int,
+        scale_factors: dict[int, float],
+    ):
         if "_" in chr:
             # only encode official chr
             return
 
-        dir = os.path.join(self._outdir, f"bin{bin_width}")
+        dir = os.path.join(self._outdir)  # , f"bin{bin_width}")
         os.makedirs(dir, exist_ok=True)
 
         out = os.path.join(
             dir,
-            f"{chr}_bin{bin_width}_{self._genome}.sql",
+            f"{chr}_{self._genome}.sql",
         )
-
-        # set small counts to zero to reduce what is basically noise
-        for b in self._bin_map[chr][bin_width]:
-            if self._bin_map[chr][bin_width][b] <= self._min_reads:
-                self._bin_map[chr][bin_width][b] = 0
-
-        # if os.path.exists(out):
-        #    return
-
-        # max_i = np.max(np.where(self._bin_map[bin_width] > 0))
-        # the max non zero bin in the data
-        max_bin = sorted(
-            filter(
-                lambda x: self._bin_map[chr][bin_width][x] > 0,
-                self._bin_map[chr][bin_width].keys(),
-            ),
-            reverse=True,
-        )[0]
-
-        bins = max_bin + 1
-
-        block_map = np.zeros(bins, dtype=int)
-
-        bi = 0
-
-        # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
-
-        for b in range(0, bins):
-            # if self._stat == "count":
-            #     count = self._bin_map[b]
-            # elif self._stat == "max":
-            #     count = np.max(self._read_map[bi : (bi + bin_width)])
-            # else:
-            #     # mean reads per bin
-            #     count = int(np.round(np.mean(self._read_map[bi : (bi + bin_width)])))
-
-            reads = self._bin_map[chr][bin_width][b]
-
-            if self._mode == "round2":
-                # round to nearest multiple of 2 so that we reduce
-                # bin variation to make smaller bins
-                reads = int(np.round(reads / 2)) * 2
-
-            block_map[b] = reads
-
-            self.sum_c += reads
-
-            bi += bin_width
-
-        # make a list of the actual blocks in use
-        bins = []
-        current_count = block_map[0]
-        start_bin = 0
-
-        for bi, reads in enumerate(block_map):
-            if reads != current_count:
-                if current_count > 0:
-                    start1 = start_bin * bin_width + 1
-                    end1 = bi * bin_width  # + 1
-                    kb = (end1 - start1 + 1) / 1000
-                    bins.append(
-                        {
-                            "start": start1,
-                            "end": end1,
-                            "reads": current_count,
-                            "rpk": current_count / kb,
-                            "bpm": 0,
-                        }
-                    )
-
-                current_count = reads
-                start_bin = bi
-
-        # in this 1 based system, start and end are inclusive
-        start1 = start_bin * bin_width + 1
-        end1 = len(block_map) * bin_width
-        kb = (end1 - start1 + 1) / 1000
-        bins.append(
-            {
-                "start": start1,
-                "end": end1,
-                "reads": current_count,
-                "rpk": current_count / kb,
-                "bpm": 0,
-            }
-        )
-
-        # bpm we scale to average reads per bin etc
-        #scaling_factor = np.sum([b["reads"] for b in bins]) / 1000000
-
-        # for i in range(len(bins)):
-        #     bins[i]["bpm"] = bins[i]["rpk"] / scaling_factor
 
         print(f"Writing to {out}...")
 
         with open(out, "w") as f:
             print("BEGIN TRANSACTION;", file=f)
             print(
-                f"INSERT INTO track (public_id, genome, platform, name, chr, bin_width, reads, bpm_scale_factor) VALUES ('{self._publicId}', '{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {bin_width}, {chr_reads}, {scaling_factor});",
+                f"INSERT INTO track (public_id, genome, platform, name, chr, reads) VALUES ('{self._publicId}', '{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {chr_reads});",
                 file=f,
             )
             print("COMMIT;", file=f)
 
             print("BEGIN TRANSACTION;", file=f)
-
-            for b in bins:
+            for bin in bin_sizes:
                 print(
-                    f"INSERT INTO bins (start, end, reads) VALUES ({b['start']}, {b['end']}, {b['reads']});",
+                    f"INSERT INTO bpm_scale_factors (bin_size, scale_factor) VALUES ({bin}, {scale_factors[bin]});",
                     file=f,
                 )
-
-            # current_count = block_map[0]
-            # start_bin = 0
-
-            # for bi, count in enumerate(block_map):
-            #     if count != current_count:
-            #         if current_count > 0:
-            #             start1 = start_bin * bin_width + 1
-            #             end1 = bi * bin_width  # + 1
-            #             print(
-            #                 f"INSERT INTO bins (start, end, reads) VALUES ({start1}, {end1}, {current_count});",
-            #                 file=f,
-            #             )
-
-            #         current_count = count
-            #         start_bin = bi
-
-            # # in this 1 based system, start and end are inclusive
-            # start1 = start_bin * bin_width + 1
-            # end1 = len(block_map) * bin_width
-
-            # print(
-            #     f"INSERT INTO bins (start, end, reads) VALUES ({start1}, {end1}, {current_count});",
-            #     file=f,
-            # )
-
             print("COMMIT;", file=f)
 
-     
+            for bin_size in bin_sizes:
+                print("BEGIN TRANSACTION;", file=f)
+
+                # set small counts to zero to reduce what is basically noise
+                for b in self._bin_map[chr][bin_size]:
+                    if self._bin_map[chr][bin_size][b] <= self._min_reads:
+                        self._bin_map[chr][bin_size][b] = 0
+
+                # if os.path.exists(out):
+                #    return
+
+                # max_i = np.max(np.where(self._bin_map[bin_width] > 0))
+                # the max non zero bin in the data
+                max_bin = sorted(
+                    filter(
+                        lambda x: self._bin_map[chr][bin_size][x] > 0,
+                        self._bin_map[chr][bin_size].keys(),
+                    ),
+                    reverse=True,
+                )[0]
+
+                bins = max_bin + 1
+
+                block_map = np.zeros(bins, dtype=int)
+
+                bi = 0
+
+                # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
+
+                for b in range(0, bins):
+                    reads = self._bin_map[chr][bin_size][b]
+
+                    if self._mode == "round2":
+                        # round to nearest multiple of 2 so that we reduce
+                        # bin variation to make smaller bins
+                        reads = int(np.round(reads / 2)) * 2
+
+                    block_map[b] = reads
+
+                    self.sum_c += reads
+
+                    bi += bin_size
+
+                # merge contiguous blocks with same count
+                bins = []
+                current_count = block_map[0]
+                start_bin = 0
+
+                for bi, reads in enumerate(block_map):
+                    if reads != current_count:
+                        if current_count > 0:
+                            start1 = start_bin * bin_size + 1
+                            end1 = bi * bin_size  # + 1
+                            kb = (end1 - start1 + 1) / 1000
+                            bins.append(
+                                {
+                                    "start": start1,
+                                    "end": end1,
+                                    "reads": current_count,
+                                    "rpk": current_count / kb,
+                                    "bpm": 0,
+                                }
+                            )
+
+                        current_count = reads
+                        start_bin = bi
+
+                # in this 1 based system, start and end are inclusive
+                start1 = start_bin * bin_size + 1
+                end1 = len(block_map) * bin_size
+                kb = (end1 - start1 + 1) / 1000
+                bins.append(
+                    {
+                        "start": start1,
+                        "end": end1,
+                        "reads": current_count,
+                        "rpk": current_count / kb,
+                        "bpm": 0,
+                    }
+                )
+
+                # bpm we scale to average reads per bin etc
+                # scaling_factor = np.sum([b["reads"] for b in bins]) / 1000000
+
+                # for i in range(len(bins)):
+                #     bins[i]["bpm"] = bins[i]["rpk"] / scaling_factor
+
+                for b in bins:
+                    print(
+                        f"INSERT INTO bins{bin_size} (start, end, reads) VALUES ({b['start']}, {b['end']}, {b['reads']});",
+                        file=f,
+                    )
+
+                print("COMMIT;", file=f)
+
 
 class BinCountReader:
     def __init__(self, dir, genome, mode="max"):
