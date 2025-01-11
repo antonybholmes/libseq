@@ -335,11 +335,11 @@ class BinCountWriter:
                 if paired:
                     start = min(read.pos, read.pnext) - 1
                     read_length = abs(read.tlen)
-                    print("paired", start, read_length)
+                    #print("paired", start, read_length)
                 else:
                     start = read.pos -1
                     read_length = read.length
-                    print(start, read_length)
+                    #print(start, read_length)
 
                 # if self._stat == "count":
                 #     sb = math.floor(start / self._bin_width)
