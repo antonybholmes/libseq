@@ -331,10 +331,14 @@ class BinCountWriter:
             for read in reader.reads(bam_chr):
 
                 # convert to zero based
-                start = min(read.pos, read.pnext) - 1
 
-                read_length = abs(read.tlen)
-
+                if paired:
+                    start = min(read.pos, read.pnext) - 1
+                    read_length = abs(read.tlen)
+                else:
+                    start = read.pos -1
+                    read_length = read.length
+                    
                 print(start, read_length)
 
                 # if self._stat == "count":
