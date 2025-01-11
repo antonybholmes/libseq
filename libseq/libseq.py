@@ -304,7 +304,7 @@ class BinCountWriter:
 
         reader = libbam.BamReader(self.bam, paired=paired)
 
-        chrs = reader.chrs()
+        chrs = ["chr1"] #reader.chrs()
 
         print(chrs)
 
