@@ -502,6 +502,23 @@ class BinCountWriter:
                     if self._bin_map[chr][bin_size][b] <= self._min_reads:
                         self._bin_map[chr][bin_size][b] = 0
 
+                smooth_bin_map = collections.defaultdict(int)
+
+                for b in self._bin_map[chr][bin_size]:
+                    if b == 0:
+                        continue
+
+                    b1 = b -1
+                    b3 = b + 1
+                    c1 = self._bin_map[chr][bin_size][b1] if b1 in self._bin_map[chr][bin_size] else 0
+                    c3 = self._bin_map[chr][bin_size][b3] if b3 in self._bin_map[chr][bin_size] else 0
+                    ca = np.round((self._bin_map[chr][bin_size][b] + c1 + c3) / 3)
+                    smooth_bin_map[b] = ca
+
+          
+                # smooth with rolling average of 3 bins
+
+
                 # if os.path.exists(out):
                 #    return
 
@@ -509,8 +526,8 @@ class BinCountWriter:
                 # the max non zero bin in the data
                 max_bin = sorted(
                     filter(
-                        lambda x: self._bin_map[chr][bin_size][x] > 0,
-                        self._bin_map[chr][bin_size].keys(),
+                        lambda x: smooth_bin_map[x] > 0,
+                        smooth_bin_map.keys(),
                     ),
                     reverse=True,
                 )[0]
@@ -524,7 +541,7 @@ class BinCountWriter:
                 # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
 
                 for b in range(0, bins):
-                    reads = self._bin_map[chr][bin_size][b]
+                    reads = smooth_bin_map[b]
 
                     if self._mode == "round2":
                         # round to nearest multiple of 2 so that we reduce
