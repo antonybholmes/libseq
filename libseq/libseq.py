@@ -335,11 +335,11 @@ class BinCountWriter:
                 if paired:
                     start = min(read.pos, read.pnext) - 1
                     read_length = abs(read.tlen)
-                    #print("paired", start, read_length)
+                    # print("paired", start, read_length)
                 else:
-                    start = read.pos -1
+                    start = read.pos - 1
                     read_length = read.length
-                    #print(start, read_length)
+                    # print(start, read_length)
 
                 # if self._stat == "count":
                 #     sb = math.floor(start / self._bin_width)
@@ -507,17 +507,24 @@ class BinCountWriter:
                 for b in self._bin_map[chr][bin_size]:
                     if b == 0:
                         continue
+                    c = self._bin_map[chr][bin_size][b]
 
-                    b1 = b -1
+                    b1 = b - 1
                     b3 = b + 1
-                    c1 = self._bin_map[chr][bin_size][b1] if b1 in self._bin_map[chr][bin_size] else 0
-                    c3 = self._bin_map[chr][bin_size][b3] if b3 in self._bin_map[chr][bin_size] else 0
-                    ca = np.round((self._bin_map[chr][bin_size][b] + c1 + c3) / 3)
+                    c1 = (
+                        self._bin_map[chr][bin_size][b1]
+                        if b1 in self._bin_map[chr][bin_size]
+                        else 0
+                    )
+                    c3 = (
+                        self._bin_map[chr][bin_size][b3]
+                        if b3 in self._bin_map[chr][bin_size]
+                        else 0
+                    )
+                    ca = np.round((c + c1 + c3) / 3)
                     smooth_bin_map[b] = ca
 
-          
                 # smooth with rolling average of 3 bins
-
 
                 # if os.path.exists(out):
                 #    return
