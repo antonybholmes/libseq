@@ -576,8 +576,8 @@ class BinCountWriter:
                 current_count = block_map[bins[0]]
                 start_bin = 0
 
-                for b in range(bins[0], bins[-1] + 1):
-                    reads = block_map[b]
+                for bi in range(bins[0], bins[-1] + 1):
+                    reads = block_map[bi]
 
                     if reads != current_count:
                         if current_count > 0:
