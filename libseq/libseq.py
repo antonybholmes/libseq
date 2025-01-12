@@ -498,16 +498,25 @@ class BinCountWriter:
                 print("BEGIN TRANSACTION;", file=f)
 
                 # set small counts to zero to reduce what is basically noise
-                for b in self._bin_map[chr][bin_size]:
+
+                bins = sorted(self._bin_map[chr][bin_size])
+
+                for b in bins:
                     if self._bin_map[chr][bin_size][b] <= self._min_reads:
                         self._bin_map[chr][bin_size][b] = 0
 
                 smooth_bin_map = collections.defaultdict(int)
 
-                for b in self._bin_map[chr][bin_size]:
-                    if b == 0:
-                        continue
-                    c = self._bin_map[chr][bin_size][b]
+                bins.append(bins[0] - 1)
+                bins.append(bins[len(bins) - 1] + 1)
+                bins = sorted(bins)
+
+                for b in bins:
+                    c = (
+                        self._bin_map[chr][bin_size][b]
+                        if b in self._bin_map[chr][bin_size]
+                        else 0
+                    )
 
                     b1 = b - 1
                     b3 = b + 1
