@@ -501,9 +501,9 @@ class BinCountWriter:
 
                 bins = sorted(self._bin_map[chr][bin_size])
 
-                for b in bins:
-                    if self._bin_map[chr][bin_size][b] <= self._min_reads:
-                        self._bin_map[chr][bin_size][b] = 0
+                for bi in bins:
+                    if self._bin_map[chr][bin_size][bi] <= self._min_reads:
+                        self._bin_map[chr][bin_size][bi] = 0
 
                 smooth_bin_map = collections.defaultdict(int)
 
@@ -513,15 +513,15 @@ class BinCountWriter:
                 # bins = sorted(bins)
 
                 # test all bins between ends for smoothing
-                for b in range(bins[0], bins[-1] + 1):  # bins:
+                for bi in range(bins[0], bins[-1] + 1):  # bins:
                     c = (
-                        self._bin_map[chr][bin_size][b]
-                        if b in self._bin_map[chr][bin_size]
+                        self._bin_map[chr][bin_size][bi]
+                        if bi in self._bin_map[chr][bin_size]
                         else 0
                     )
 
-                    b1 = b - 1
-                    b3 = b + 1
+                    b1 = bi - 1
+                    b3 = bi + 1
 
                     c1 = (
                         self._bin_map[chr][bin_size][b1]
@@ -539,7 +539,7 @@ class BinCountWriter:
                     ca = np.round((c + c1 + c3) / 3)
 
                     if ca > 0:
-                        smooth_bin_map[b] = ca
+                        smooth_bin_map[bi] = ca
 
                 # smooth with rolling average of 3 bins
 
@@ -553,23 +553,19 @@ class BinCountWriter:
 
                 block_map = np.zeros(max_bin + 1, dtype=int)
 
-                bi = 0
+                print("writing sql", bin_size, bins[0], bins[-1])
 
-                # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
-
-                for b in range(bins[0], bins[-1] + 1):
-                    reads = smooth_bin_map[b]
+                for bi in range(bins[0], bins[-1] + 1):
+                    reads = smooth_bin_map[bi]
 
                     if self._mode == "round2":
                         # round to nearest multiple of 2 so that we reduce
                         # bin variation to make smaller bins
                         reads = int(np.round(reads / 2)) * 2
 
-                    block_map[b] = reads
+                    block_map[bi] = reads
 
                     self.sum_c += reads
-
-                    bi += bin_size
 
                 # merge contiguous blocks with same count
                 res = []
