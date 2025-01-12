@@ -507,11 +507,13 @@ class BinCountWriter:
 
                 smooth_bin_map = collections.defaultdict(int)
 
-                bins.append(bins[0] - 1)
-                bins.append(bins[len(bins) - 1] + 1)
-                bins = sorted(bins)
+                # smooth ends
+                ##bins.append(bins[0] - 1)
+                # bins.append(bins[len(bins) - 1] + 1)
+                # bins = sorted(bins)
 
-                for b in bins:
+                # test all bins between ends for smoothing
+                for b in range(bins[0], bins[-1] + 1):  # bins:
                     c = (
                         self._bin_map[chr][bin_size][b]
                         if b in self._bin_map[chr][bin_size]
@@ -520,18 +522,24 @@ class BinCountWriter:
 
                     b1 = b - 1
                     b3 = b + 1
+
                     c1 = (
                         self._bin_map[chr][bin_size][b1]
                         if b1 in self._bin_map[chr][bin_size]
                         else 0
                     )
+
                     c3 = (
                         self._bin_map[chr][bin_size][b3]
                         if b3 in self._bin_map[chr][bin_size]
                         else 0
                     )
+
+                    # mean
                     ca = np.round((c + c1 + c3) / 3)
-                    smooth_bin_map[b] = ca
+
+                    if ca > 0:
+                        smooth_bin_map[b] = ca
 
                 # smooth with rolling average of 3 bins
 
@@ -540,14 +548,8 @@ class BinCountWriter:
 
                 # max_i = np.max(np.where(self._bin_map[bin_width] > 0))
                 # the max non zero bin in the data
-                max_bin = sorted(
-                    filter(
-                        lambda x: smooth_bin_map[x] > 0,
-                        smooth_bin_map.keys(),
-                    ),
-                    reverse=True,
-                )[0]
-
+                bins = sorted(smooth_bin_map)
+                max_bin = bins[-1]
                 bins = max_bin + 1
 
                 block_map = np.zeros(bins, dtype=int)
@@ -556,7 +558,7 @@ class BinCountWriter:
 
                 # print("writing sql", chr, self._mode, self._stat, bin_width, self._stat)
 
-                for b in range(0, bins):
+                for b in range(bins[0], bins[-1] + 1):
                     reads = smooth_bin_map[b]
 
                     if self._mode == "round2":
@@ -571,17 +573,19 @@ class BinCountWriter:
                     bi += bin_size
 
                 # merge contiguous blocks with same count
-                bins = []
-                current_count = block_map[0]
+                res = []
+                current_count = block_map[bins[0]]
                 start_bin = 0
 
-                for bi, reads in enumerate(block_map):
+                for b in range(bins[0], bins[-1] + 1):
+                    reads = block_map[b]
+
                     if reads != current_count:
                         if current_count > 0:
                             start1 = start_bin * bin_size + 1
                             end1 = bi * bin_size  # + 1
                             kb = (end1 - start1 + 1) / 1000
-                            bins.append(
+                            res.append(
                                 {
                                     "start": start1,
                                     "end": end1,
@@ -598,7 +602,7 @@ class BinCountWriter:
                 start1 = start_bin * bin_size + 1
                 end1 = len(block_map) * bin_size
                 kb = (end1 - start1 + 1) / 1000
-                bins.append(
+                res.append(
                     {
                         "start": start1,
                         "end": end1,
@@ -614,7 +618,7 @@ class BinCountWriter:
                 # for i in range(len(bins)):
                 #     bins[i]["bpm"] = bins[i]["rpk"] / scaling_factor
 
-                for b in bins:
+                for b in res:
                     print(
                         f"INSERT INTO bins{bin_size} (start, end, reads) VALUES ({b['start']}, {b['end']}, {b['reads']});",
                         file=f,
