@@ -550,9 +550,8 @@ class BinCountWriter:
                 # the max non zero bin in the data
                 bins = sorted(smooth_bin_map)
                 max_bin = bins[-1]
-                bins = max_bin + 1
 
-                block_map = np.zeros(bins, dtype=int)
+                block_map = np.zeros(max_bin + 1, dtype=int)
 
                 bi = 0
 
