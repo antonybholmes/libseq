@@ -570,7 +570,7 @@ class BinCountWriter:
                 # merge contiguous blocks with same count
                 res = []
                 current_count = block_map[bins[0]]
-                start_bin = 0
+                start_bin = bins[0]
 
                 for bi in range(bins[0], bins[-1] + 1):
                     reads = block_map[bi]
