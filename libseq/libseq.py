@@ -8,12 +8,13 @@ Created on Thu Aug 30 10:23:09 2018
 
 import collections
 import math
+import multiprocessing
 import numpy as np
 import libbam
 import libdna
 import struct
 import os
-
+from multiprocessing import Process
 
 # SAMTOOLS='/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-1.8/bin/samtools'
 # SAMTOOLS = '/ifs/scratch/cancer/Lab_RDF/abh2138/tools/samtools-0.1.19/samtools'
@@ -70,6 +71,168 @@ BINS_OFFSET_BYTES = N_BINS_OFFSET_BYTES + 4
 NO_DATA = np.zeros(0, dtype=int)
 
 
+def _write_chr_sql(
+    publicId: str,
+    platform: str,
+    sample: str,
+    genome: str,
+    chr: str,
+    bin_map: dict[int, dict[int, int]],
+    bin_sizes: list[int],
+    chr_reads: int,
+    scale_factors: dict[int, float],
+    mode: str,
+    min_reads: int,
+    dir: str,
+):
+    if "_" in chr:
+        # only encode official chr
+        return
+
+    # dir = os.path.join(self._outdir)  # , f"bin{bin_width}")
+    # os.makedirs(dir, exist_ok=True)
+
+    out = os.path.join(
+        dir,
+        f"{chr}_{genome}.sql",
+    )
+
+    print(f"Writing to {out}...")
+
+    with open(out, "w") as f:
+        print("BEGIN TRANSACTION;", file=f)
+        print(
+            f"INSERT INTO track (public_id, genome, platform, name, chr, reads) VALUES ('{publicId}', '{genome}', '{platform}', '{sample}', '{chr}', {chr_reads});",
+            file=f,
+        )
+        print("COMMIT;", file=f)
+
+        print("BEGIN TRANSACTION;", file=f)
+        for bin in bin_sizes:
+            print(
+                f"INSERT INTO bpm_scale_factors (bin_size, scale_factor) VALUES ({bin}, {scale_factors[bin]});",
+                file=f,
+            )
+        print("COMMIT;", file=f)
+
+        for bin_size in bin_sizes:
+            print("BEGIN TRANSACTION;", file=f)
+
+            # set small counts to zero to reduce what is basically noise
+
+            bins = sorted(bin_map[bin_size])
+
+            smooth_bin_map = collections.defaultdict(int)
+
+            # smooth ends
+            ##bins.append(bins[0] - 1)
+            # bins.append(bins[len(bins) - 1] + 1)
+            # bins = sorted(bins)
+
+            # test all bins between ends for smoothing
+            for bi in range(bins[0], bins[-1] + 1):  # bins:
+                c = bin_map[bin_size][bi] if bi in bin_map[bin_size] else 0
+
+                b1 = bi - 1
+                b3 = bi + 1
+
+                c1 = bin_map[bin_size][b1] if b1 in bin_map[bin_size] else 0
+
+                c3 = bin_map[bin_size][b3] if b3 in bin_map[bin_size] else 0
+
+                # mean
+                ca = np.round((c + c1 + c3) / 3)
+
+                # if ca > 0:
+                #    smooth_bin_map[bi] = ca
+
+                if mode == "round2":
+                    # round to nearest multiple of 2 so that we reduce
+                    # bin variation to make smaller bins
+                    #ca = np.ceil(ca * 0.5) * 2
+                    c = np.ceil(c * 0.5) * 2
+
+                if c > 0:
+                    smooth_bin_map[bi] = c
+
+            # if os.path.exists(out):
+            #    return
+
+            # max_i = np.max(np.where(self._bin_map[bin_width] > 0))
+            # the max non zero bin in the data
+            bins = sorted(smooth_bin_map)
+            max_bin = bins[-1]
+
+            block_map = np.zeros(max_bin + 1, dtype=int)
+
+            print("writing sql", bin_size, bins[0], bins[-1])
+
+            for bi in range(bins[0], bins[-1] + 1):
+                reads = smooth_bin_map[bi]
+
+                # discard bins with few reads to save space and
+                # reduce signal noise
+                if reads > min_reads:
+                    block_map[bi] = reads
+
+                # self.sum_c += reads
+
+            # merge contiguous blocks with same count
+            res = []
+            current_count = block_map[bins[0]]
+            start_bin = bins[0]
+
+            for bi in range(bins[0], bins[-1] + 1):
+                reads = block_map[bi]
+
+                if reads != current_count:
+                    if current_count > 0:
+                        start1 = start_bin * bin_size + 1
+                        end1 = bi * bin_size  # + 1
+                        kb = (end1 - start1 + 1) / 1000
+                        res.append(
+                            {
+                                "start": start1,
+                                "end": end1,
+                                "reads": current_count,
+                                "rpk": current_count / kb,
+                                "bpm": 0,
+                            }
+                        )
+
+                    current_count = reads
+                    start_bin = bi
+
+            if current_count > 0:
+                # in this 1 based system, start and end are inclusive
+                start1 = start_bin * bin_size + 1
+                end1 = len(block_map) * bin_size
+                kb = (end1 - start1 + 1) / 1000
+                res.append(
+                    {
+                        "start": start1,
+                        "end": end1,
+                        "reads": current_count,
+                        "rpk": current_count / kb,
+                        "bpm": 0,
+                    }
+                )
+
+            # bpm we scale to average reads per bin etc
+            # scaling_factor = np.sum([b["reads"] for b in bins]) / 1000000
+
+            # for i in range(len(bins)):
+            #     bins[i]["bpm"] = bins[i]["rpk"] / scaling_factor
+
+            for b in res:
+                print(
+                    f"INSERT INTO bins{bin_size} (start, end, reads) VALUES ({b['start']}, {b['end']}, {b['reads']});",
+                    file=f,
+                )
+
+            print("COMMIT;", file=f)
+
+
 class BinCountWriter:
     def __init__(
         self,
@@ -79,7 +242,8 @@ class BinCountWriter:
         genome,
         bin_sizes=[128],
         platform="ChIP-seq",
-        min_reads=2,
+        min_reads=4,
+        ext=100,
         stat="mean",
         mode="round2",
         outdir="trackbin",
@@ -96,13 +260,15 @@ class BinCountWriter:
         self._bin_sizes = bin_sizes
         self._stat = stat
         self._mode = mode
-        self._min_reads = 2
+        self._min_reads = min_reads
+        self._ext = ext
         # cache counts
         # self._read_map = np.zeros(280000000, dtype=int)
         self._bin_map = collections.defaultdict(
             lambda: collections.defaultdict(lambda: collections.defaultdict(int))
         )
-        self.sum_c = 0
+
+        # self.sum_c = 0
         self._outdir = outdir  # os.path.join(outdir, genome, self._sample)
 
     def _reset(self):
@@ -135,7 +301,7 @@ class BinCountWriter:
 
             block_map[b] = c
 
-            self.sum_c += c
+            # self.sum_c += c
 
             i += self._bin_width
 
@@ -212,7 +378,7 @@ class BinCountWriter:
         # reset the counts
         self._reset()
 
-        self.sum_c = 0
+        # self.sum_c = 0
 
         c = 0
 
@@ -250,7 +416,7 @@ class BinCountWriter:
         chr = ""
         c = 0
 
-        self.sum_c = 0
+        # self.sum_c = 0
 
         reads = 0
 
@@ -311,7 +477,7 @@ class BinCountWriter:
         chr = ""
         c = 0
 
-        self.sum_c = 0
+        # self.sum_c = 0
 
         reads = 0
 
@@ -352,7 +518,11 @@ class BinCountWriter:
                 # for all bins calc unique reads per bin
                 for bin_width in self._bin_sizes:
                     sb = math.floor(start / bin_width)
+                    # eb = math.floor((start + read_length - 1) / bin_width)
+
+                    # extend by bin width to smooth areas with lots of small gaps
                     eb = math.floor((start + read_length - 1) / bin_width)
+
                     for b in range(sb, eb + 1):
                         self._bin_map[chr][bin_width][b] += 1
 
@@ -380,12 +550,51 @@ class BinCountWriter:
             scale_factor = self._write_bin_group_sql(bin_width, reads)
             scale_factors[bin_width] = scale_factor
 
-        for bam_chr in chrs:
-            chr = bam_chr
-            if not chr.startswith("chr"):
-                chr = "chr" + chr
+        # limit processes to stop system hang
+        pool_size = 5
+        for chri in range(0, len(chrs), pool_size):
+            pool_chrs = chrs[chri : (chri + pool_size)]
 
-            self._write_chr_sql(chr, self._bin_sizes, chr_read_map[chr], scale_factors)
+            processes = []
+
+            for bam_chr in pool_chrs:
+                chr = bam_chr
+                if not chr.startswith("chr"):
+                    chr = "chr" + chr
+
+                process = multiprocessing.Process(
+                    target=_write_chr_sql,
+                    args=(
+                        self._publicId,
+                        self._platform,
+                        self._sample,
+                        self._genome,
+                        chr,
+                        self._bin_map[chr],
+                        self._bin_sizes,
+                        chr_read_map[chr],
+                        scale_factors,
+                        self._mode,
+                        self._min_reads,
+                        self._outdir,
+                    ),
+                )
+                processes.append(process)
+                process.start()
+
+                # genome: str,
+                # chr: str,
+                # bin_map: dict[int, dict[int, int]],
+                # bin_sizes: list[int],
+                # chr_reads: int,
+                # scale_factors: dict[int, float],
+                # mode: str,
+                # min_reads: int
+                # p = Process(target=self._write_chr_sql, args=(chr, self._bin_sizes, chr_read_map[chr], scale_factors))
+                # p.start()
+
+            for process in processes:
+                process.join()
 
         # # write data for each chr of each bin group
         # for chr in chrs:
@@ -456,170 +665,6 @@ class BinCountWriter:
         #     print("COMMIT;", file=f)
 
         return scaling_factor
-
-    def _write_chr_sql(
-        self,
-        chr: str,
-        bin_sizes: list[int],
-        chr_reads: int,
-        scale_factors: dict[int, float],
-    ):
-        if "_" in chr:
-            # only encode official chr
-            return
-
-        dir = os.path.join(self._outdir)  # , f"bin{bin_width}")
-        os.makedirs(dir, exist_ok=True)
-
-        out = os.path.join(
-            dir,
-            f"{chr}_{self._genome}.sql",
-        )
-
-        print(f"Writing to {out}...")
-
-        with open(out, "w") as f:
-            print("BEGIN TRANSACTION;", file=f)
-            print(
-                f"INSERT INTO track (public_id, genome, platform, name, chr, reads) VALUES ('{self._publicId}', '{self._genome}', '{self._platform}', '{self._sample}', '{chr}', {chr_reads});",
-                file=f,
-            )
-            print("COMMIT;", file=f)
-
-            print("BEGIN TRANSACTION;", file=f)
-            for bin in bin_sizes:
-                print(
-                    f"INSERT INTO bpm_scale_factors (bin_size, scale_factor) VALUES ({bin}, {scale_factors[bin]});",
-                    file=f,
-                )
-            print("COMMIT;", file=f)
-
-            for bin_size in bin_sizes:
-                print("BEGIN TRANSACTION;", file=f)
-
-                # set small counts to zero to reduce what is basically noise
-
-                bins = sorted(self._bin_map[chr][bin_size])
-
-                for bi in bins:
-                    if self._bin_map[chr][bin_size][bi] <= self._min_reads:
-                        self._bin_map[chr][bin_size][bi] = 0
-
-                smooth_bin_map = collections.defaultdict(int)
-
-                # smooth ends
-                ##bins.append(bins[0] - 1)
-                # bins.append(bins[len(bins) - 1] + 1)
-                # bins = sorted(bins)
-
-                # test all bins between ends for smoothing
-                for bi in range(bins[0], bins[-1] + 1):  # bins:
-                    c = (
-                        self._bin_map[chr][bin_size][bi]
-                        if bi in self._bin_map[chr][bin_size]
-                        else 0
-                    )
-
-                    b1 = bi - 1
-                    b3 = bi + 1
-
-                    c1 = (
-                        self._bin_map[chr][bin_size][b1]
-                        if b1 in self._bin_map[chr][bin_size]
-                        else 0
-                    )
-
-                    c3 = (
-                        self._bin_map[chr][bin_size][b3]
-                        if b3 in self._bin_map[chr][bin_size]
-                        else 0
-                    )
-
-                    # mean
-                    ca = np.round((c + c1 + c3) / 3)
-
-                    if ca > 0:
-                        smooth_bin_map[bi] = ca
-
-                # smooth with rolling average of 3 bins
-
-                # if os.path.exists(out):
-                #    return
-
-                # max_i = np.max(np.where(self._bin_map[bin_width] > 0))
-                # the max non zero bin in the data
-                bins = sorted(smooth_bin_map)
-                max_bin = bins[-1]
-
-                block_map = np.zeros(max_bin + 1, dtype=int)
-
-                print("writing sql", bin_size, bins[0], bins[-1])
-
-                for bi in range(bins[0], bins[-1] + 1):
-                    reads = smooth_bin_map[bi]
-
-                    if self._mode == "round2":
-                        # round to nearest multiple of 2 so that we reduce
-                        # bin variation to make smaller bins
-                        reads = int(np.round(reads / 2)) * 2
-
-                    block_map[bi] = reads
-
-                    self.sum_c += reads
-
-                # merge contiguous blocks with same count
-                res = []
-                current_count = block_map[bins[0]]
-                start_bin = bins[0]
-
-                for bi in range(bins[0], bins[-1] + 1):
-                    reads = block_map[bi]
-
-                    if reads != current_count:
-                        if current_count > 0:
-                            start1 = start_bin * bin_size + 1
-                            end1 = bi * bin_size  # + 1
-                            kb = (end1 - start1 + 1) / 1000
-                            res.append(
-                                {
-                                    "start": start1,
-                                    "end": end1,
-                                    "reads": current_count,
-                                    "rpk": current_count / kb,
-                                    "bpm": 0,
-                                }
-                            )
-
-                        current_count = reads
-                        start_bin = bi
-
-                # in this 1 based system, start and end are inclusive
-                start1 = start_bin * bin_size + 1
-                end1 = len(block_map) * bin_size
-                kb = (end1 - start1 + 1) / 1000
-                res.append(
-                    {
-                        "start": start1,
-                        "end": end1,
-                        "reads": current_count,
-                        "rpk": current_count / kb,
-                        "bpm": 0,
-                    }
-                )
-
-                # bpm we scale to average reads per bin etc
-                # scaling_factor = np.sum([b["reads"] for b in bins]) / 1000000
-
-                # for i in range(len(bins)):
-                #     bins[i]["bpm"] = bins[i]["rpk"] / scaling_factor
-
-                for b in res:
-                    print(
-                        f"INSERT INTO bins{bin_size} (start, end, reads) VALUES ({b['start']}, {b['end']}, {b['reads']});",
-                        file=f,
-                    )
-
-                print("COMMIT;", file=f)
 
 
 class BinCountReader:
